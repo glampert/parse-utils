@@ -1,0 +1,60 @@
+
+
+/*
+ * Test for a custom "verbose" punctuation table.
+ * Each of the <> enclosed words maps to a C/C++ punctuation.
+ */
+
+    <assign>
+    <add>
+    <sub>
+    <mul>
+    <div>
+    <mod>
+    <rshift>
+    <lshift>
+    <add_assign>
+    <sub_assign>
+    <mul_assign>
+    <div_assign>
+    <mod_assign>
+    <rshift_assign>
+    <lshift_assign>
+    <logic_and>
+    <logic_or>
+    <logic_not>
+    <logic_eq>
+    <logic_not_eq>
+    <logic_greater>
+    <logic_less>
+    <logic_greater_eq>
+    <logic_less_eq>
+    <plus_plus>
+    <minus_minus>
+    <bitwise_and>
+    <bitwise_or>
+    <bitwise_xor>
+    <bitwise_not>
+    <bitwise_and_assign>
+    <bitwise_or_assign>
+    <bitwise_xor_assign>
+    <dot>
+    <arrow>
+    <colon_colon>
+    <dot_star>
+    <comma>
+    <semicolon>
+    <colon>
+    <question_mark>
+    <ellipsis>
+    <backslash>
+    <open_parentheses>
+    <close_parentheses>
+    <open_bracket>
+    <close_bracket>
+    <open_curly_bracket>
+    <close_curly_bracket>
+    <preprocessor>
+    <preprocessor_merge>
+    <dollar_sign>
+

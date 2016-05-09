@@ -1,0 +1,42 @@
+
+/*
+ * Test data (http://www.lipsum.com/) for a line and word counter using the lexer class: 42 lines, 527 words.
+ */
+
+Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla id eros sagittis, malesuada dolor eget, interdum sem.
+Fusce pharetra ultricies mi sed tristique. Pellentesque a ipsum sit amet orci ultricies ultrices. Sed et ultrices sem,
+eget cursus arcu. Vivamus vel placerat elit. Morbi tincidunt justo lacus, a commodo elit ultricies eu. Pellentesque
+habitant morbi tristique senectus et netus et malesuada fames ac turpis egestas. Donec aliquet ex nibh. Vivamus bibendum
+porta risus, nec rutrum turpis vehicula ut. Vestibulum vel erat semper, tempor nibh sit amet, bibendum quam. Mauris dolor
+ipsum, tincidunt id egestas in, convallis vitae augue. Aliquam pellentesque pharetra fermentum.
+
+Suspendisse urna dolor, finibus a dolor sit amet, tincidunt tincidunt dolor. Ut faucibus odio ut sem aliquet, vitae
+tincidunt nisl placerat. Phasellus mattis consequat dolor at volutpat. In nisi lacus, blandit vel cursus a, tincidunt
+cursus sem. Morbi consectetur, dui eu faucibus pretium, felis augue egestas orci, a porta dolor sem in metus. Nullam
+eu lacus eleifend, lacinia urna nec, pharetra massa. Morbi a placerat urna, vitae lobortis tortor. Duis commodo
+condimentum neque, eu mattis metus fringilla vel. Praesent accumsan in mi nec mollis. Pellentesque consequat ligula
+in rhoncus rhoncus. Quisque non sem purus. Cum sociis natoque penatibus et magnis dis parturient montes, nascetur
+ridiculus mus. Pellentesque habitant morbi tristique senectus et netus et malesuada fames ac turpis egestas. Phasellus
+condimentum, odio eget tempor rhoncus, sapien enim suscipit felis, nec suscipit nisl lacus ac leo.
+
+Sed efficitur magna enim, placerat viverra nisi cursus at. Proin in nisl risus. Mauris posuere commodo commodo.
+Vestibulum at ipsum mauris. Quisque molestie, enim et dignissim varius, quam ipsum pretium risus, quis posuere est
+neque at mauris. Vestibulum ante ipsum primis in faucibus orci luctus et ultrices posuere cubilia Curae; Donec quis
+justo quis orci fermentum rutrum. Pellentesque malesuada diam at augue bibendum vulputate. Donec fermentum
+pellentesque dolor. Pellentesque consequat molestie augue, nec fringilla risus tristique quis. Nunc imperdiet
+nisl nec ipsum lacinia consectetur. Aenean id est sit amet ligula accumsan pharetra ut at enim. Ut diam sapien,
+vehicula a felis et, bibendum sollicitudin eros. Duis suscipit neque sed tortor bibendum, sit amet cursus massa
+consectetur. Cras neque ligula, molestie vitae fermentum quis, interdum nec dui.
+
+Duis mollis, lacus id scelerisque ultricies, risus nunc scelerisque libero, sed congue mauris ante ac metus.
+In in malesuada mauris, malesuada sollicitudin ex. Mauris maximus dui a arcu cursus, eget lobortis ex blandit.
+Maecenas blandit est lacinia nibh vestibulum porttitor. Cras mauris magna, eleifend eu maximus vitae, aliquam
+vitae risus. Vestibulum condimentum faucibus urna, vitae accumsan tortor sodales nec. Mauris placerat ultricies
+dui nec vehicula. Fusce ut nibh felis.
+
+Phasellus accumsan, dui quis congue interdum, dolor orci vulputate odio, sed sagittis nulla velit vitae orci.
+In pretium elit magna, et sodales ante suscipit et. Quisque facilisis tortor sem, eu venenatis orci cursus ut.
+Fusce facilisis sed leo et cursus. Cras mi nisl, imperdiet et fringilla eu, lacinia vitae justo. Etiam consequat
+sollicitudin risus, at mattis odio feugiat a. Proin pharetra, nibh ac maximus mollis, lectus felis interdum nibh,
+non tincidunt justo felis eu libero. Vivamus placerat libero sed ultricies dictum. Nunc molestie eu orci at ornare.
+Quisque sollicitudin vulputate purus, at scelerisque eros volutpat quis.

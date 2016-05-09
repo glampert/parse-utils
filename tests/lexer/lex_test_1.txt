@@ -1,0 +1,25 @@
+
+/*
+ * Types on the left will be scanned as the type in right-hand-side comment.
+ */
+
+'x'                     // char literal (string)
+'4cc'                   // multi-char literal (string)
+"hello world"           // string
+0                       // bool
+1                       // bool
+false                   // bool
+true                    // bool
+-120                    // char
+-31000                  // short
+-4096                   // signed int
+0x11AABBCC              // signed long
+6789UL                  // unsigned int
+0x9908B0DFul            // unsigned long
+0x12                    // uint8_t
+0xEEFF                  // uint16_t
+0xDEADBEEF              // uint32_t
+0xCAFED00DCAFEBABE      // uint64_t
+2.718281828f            // float
+3.14159265358979323846L // double
+
