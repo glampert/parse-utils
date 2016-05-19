@@ -82,7 +82,7 @@ void parse_argc_argv(const int argc, const char * argv[], flags_list * out_flags
                              lexer::flags::allow_ip_addresses |
                              lexer::flags::allow_multi_char_literals);
 
-        while (lex.read_next_token(&tok))
+        while (lex.next_token(&tok))
         {
             if (tok == '-')
             {
@@ -95,7 +95,7 @@ void parse_argc_argv(const int argc, const char * argv[], flags_list * out_flags
                 std::string flag_name = tok.as_string();
 
                 lexer::token next_tok;
-                if (lex.read_next_token(&next_tok))
+                if (lex.next_token(&next_tok))
                 {
                     if (next_tok == '-') // Composite name, like "foo-bar"
                     {
@@ -107,7 +107,7 @@ void parse_argc_argv(const int argc, const char * argv[], flags_list * out_flags
                     }
                     else if (next_tok == '=') // Value part follows
                     {
-                        if (!lex.read_next_token(&next_tok))
+                        if (!lex.next_token(&next_tok))
                         {
                             lex.error("expected value after \'" + flag_name + "=\' in cmdline!");
                         }

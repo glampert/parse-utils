@@ -171,6 +171,7 @@ public:
         bool                is_float()          const noexcept;
         bool                is_boolean()        const noexcept;
         bool                is_string()         const noexcept;
+        bool                is_literal()        const noexcept;
         bool                is_identifier()     const noexcept;
         bool                is_punctuation()    const noexcept;
         std::size_t         get_length()        const noexcept;
@@ -188,7 +189,7 @@ public:
         bool operator != (const std::string & str) const noexcept;
 
         // Setters used by the lexer:
-        void set_text(std::string new_text);
+        void set_string(std::string new_text);
         void set_flags(std::uint32_t new_flags) noexcept;
         void set_line_number(std::uint32_t new_line_num) noexcept;
         void set_lines_crossed(std::uint32_t new_lines_crossed) noexcept;
@@ -200,6 +201,8 @@ public:
         void append(char c);
         void move_to(std::string * dest_str) noexcept;
         void clear() noexcept;
+        token stringize() const;
+        token trim() const;
 
         // Helpers to generate debug strings for the token type enum and flags:
         static std::string type_string(type type);
@@ -211,7 +214,7 @@ public:
         double get_value_double()     const noexcept;
         void update_cached_values()   const noexcept;
 
-        std::string           m_text;
+        std::string           m_string;
         std::uint32_t         m_flags         = 0;
         std::uint32_t         m_line_num      = 0;
         std::uint32_t         m_lines_crossed = 0;
@@ -282,6 +285,9 @@ public:
         preprocessor_merge,  // ##
         dollar_sign          // $
     }; // punctuation_id
+
+    // Checks if the given token is a punctuation and its flags equal the punctuation_id.
+    static bool is_punctuation_token(const token & tok, punctuation_id id) noexcept;
 
     //
     // punctuation_def:
@@ -454,12 +460,18 @@ public:
     // Lexer flags can be changed at any time during scanning.
     void set_flags(std::uint32_t new_flags) noexcept;
 
+    // Changes the line number but doesn't alter the position within the scrip.
+    void set_line_number(std::uint32_t new_line_num) noexcept;
+
     // Read the next token (or returns a cached token).
     // Returns false if no more tokens are available or any other errors occurred.
-    bool read_next_token(token * out_token);
+    bool next_token(token * out_token);
 
     // Read a token only if on the same line.
-    bool read_next_token_on_line(token * out_token);
+    bool next_token_on_line(token * out_token);
+
+    // Unread the given token / put it back.
+    void unget_token(const token & in_token);
 
     // Expect a certain token, reads the token if available, generates an error otherwise.
     bool expect_token_char(char c);
@@ -490,18 +502,12 @@ public:
     // Skip the rest of the current line.
     bool skip_rest_of_line();
 
-    // Skip a {} braced section.
-    bool skip_braced_section(bool scan_first_brace = true);
+    // Skip a {} bracketed section.
+    bool skip_bracketed_section(bool scan_first_bracket = true);
 
     // Skips spaces, tabs, C-style multi-line comments, C++ comments, etc.
     // Returns false if there is no token left to read.
     bool skip_whitespace(bool current_line);
-
-    // Unread the given token / put it back.
-    void unread_token(const token & in_token);
-
-    // Returns the rest of the current line.
-    std::string read_rest_of_line();
 
     // Read a boolean token. 'true|false' and '0|1' qualify as booleans.
     // Calls lexer::error() on failure (which might throw) and returns false.
@@ -558,11 +564,11 @@ public:
                        const char * close_delim = ")",
                        bool comma_separated_values = true);
 
-    // Read a braced section into a string.
-    std::string scan_braced_section();
+    // Read a {} bracketed section into a string.
+    std::string scan_bracketed_section();
 
-    // Read a braced section into a string, maintaining indents and newlines.
-    std::string scan_braced_section_exact(int tabs = -1);
+    // Read a {} bracketed section into a string, maintaining indents and newlines.
+    std::string scan_bracketed_section_exact(int tabs = -1);
 
     // Read the rest of the line via tokenization.
     std::string scan_rest_of_line();
@@ -572,6 +578,9 @@ public:
 
     // Retrieves the whitespace characters before the last read token.
     std::string get_last_whitespace() const;
+
+    // Returns the length in characters of whitespace before the last token read.
+    std::size_t get_last_whitespace_length() const noexcept;
 
     // Returns start index into text buffer of last whitespace.
     std::size_t get_last_whitespace_start() const noexcept;
@@ -638,9 +647,9 @@ private:
     std::uint32_t                         m_script_length        = 0;       // Length of the script in characters, not counting a null terminator.
     std::uint32_t                         m_error_count          = 0;       // Bumped by lexer::error(), even if errors are suppressed.
     std::uint32_t                         m_warn_count           = 0;       // Bumped by lexer::warning(), even if warnings are suppressed.
-    token                                 m_leftover_token       {};        // Available token from unread_token(). May be empty.
+    token                                 m_leftover_token       {};        // Available token from unget_token(). May be empty.
     std::string                           m_filename             {};        // Filename of the script being scanned. Used for error reporting.
-    bool                                  m_token_available      = false;   // Set by unread_token() if m_leftover_token is available.
+    bool                                  m_token_available      = false;   // Set by unget_token() if m_leftover_token is available.
     bool                                  m_initialized          = false;   // Set when a script file is loaded from file or memory.
     bool                                  m_allocated            = false;   // True if dynamic memory was allocated. False if external.
 
@@ -657,21 +666,21 @@ private:
 // ========================================================
 
 inline lexer::token::token(token && other) noexcept
-    : m_text          { std::move(other.m_text) }
-    , m_flags         { other.m_flags           }
-    , m_line_num      { other.m_line_num        }
-    , m_lines_crossed { other.m_lines_crossed   }
-    , m_type          { other.m_type            }
-    , m_values_valid  { other.m_values_valid    }
-    , m_u64_value     { other.m_u64_value       }
-    , m_double_value  { other.m_double_value    }
+    : m_string        { std::move(other.m_string) }
+    , m_flags         { other.m_flags             }
+    , m_line_num      { other.m_line_num          }
+    , m_lines_crossed { other.m_lines_crossed     }
+    , m_type          { other.m_type              }
+    , m_values_valid  { other.m_values_valid      }
+    , m_u64_value     { other.m_u64_value         }
+    , m_double_value  { other.m_double_value      }
 {
     other.clear();
 }
 
 inline lexer::token & lexer::token::operator = (token && other) noexcept
 {
-    m_text          = std::move(other.m_text);
+    m_string        = std::move(other.m_string);
     m_flags         = other.m_flags;
     m_line_num      = other.m_line_num;
     m_lines_crossed = other.m_lines_crossed;
@@ -721,7 +730,7 @@ inline std::uint64_t lexer::token::as_uint64() const noexcept
 
 inline const std::string & lexer::token::as_string() const noexcept
 {
-    return m_text;
+    return m_string;
 }
 
 inline bool lexer::token::is_number() const noexcept
@@ -749,6 +758,11 @@ inline bool lexer::token::is_string() const noexcept
     return m_type == type::string;
 }
 
+inline bool lexer::token::is_literal() const noexcept
+{
+    return m_type == type::literal;
+}
+
 inline bool lexer::token::is_identifier() const noexcept
 {
     return m_type == type::identifier;
@@ -761,7 +775,7 @@ inline bool lexer::token::is_punctuation() const noexcept
 
 inline std::size_t lexer::token::get_length() const noexcept
 {
-    return m_text.length();
+    return m_string.length();
 }
 
 inline std::uint32_t lexer::token::get_flags() const noexcept
@@ -786,37 +800,37 @@ inline lexer::token::type lexer::token::get_type() const noexcept
 
 inline bool lexer::token::operator == (const char c) const noexcept
 {
-    return m_text.length() == 1 && m_text[0] == c;
+    return m_string.length() == 1 && m_string[0] == c;
 }
 
 inline bool lexer::token::operator != (const char c) const noexcept
 {
-    return m_text.length() == 1 && m_text[0] != c;
+    return m_string.length() == 1 && m_string[0] != c;
 }
 
 inline bool lexer::token::operator == (const char * str) const noexcept
 {
-    return m_text == str;
+    return m_string == str;
 }
 
 inline bool lexer::token::operator != (const char * str) const noexcept
 {
-    return m_text != str;
+    return m_string != str;
 }
 
 inline bool lexer::token::operator == (const std::string & str) const noexcept
 {
-    return m_text == str;
+    return m_string == str;
 }
 
 inline bool lexer::token::operator != (const std::string & str) const noexcept
 {
-    return m_text != str;
+    return m_string != str;
 }
 
-inline void lexer::token::set_text(std::string new_text)
+inline void lexer::token::set_string(std::string new_text)
 {
-    m_text = std::move(new_text);
+    m_string = std::move(new_text);
     m_values_valid = false;
 }
 
@@ -846,7 +860,7 @@ inline void lexer::token::append(const char c)
 {
     if (c != '\0')
     {
-        m_text.push_back(c);
+        m_string.push_back(c);
         m_values_valid = false;
     }
 }
@@ -855,26 +869,26 @@ inline void lexer::token::append(const char * str)
 {
     if (str != nullptr && *str != '\0')
     {
-        m_text.append(str);
+        m_string.append(str);
         m_values_valid = false;
     }
 }
 
 inline char lexer::token::operator[](const int index) const
 {
-    assert(index >= 0 && static_cast<std::size_t>(index) < m_text.length());
-    return m_text[index];
+    assert(index >= 0 && static_cast<std::size_t>(index) < m_string.length());
+    return m_string[index];
 }
 
 inline void lexer::token::move_to(std::string * dest_str) noexcept
 {
-    *dest_str = std::move(m_text);
+    *dest_str = std::move(m_string);
     clear();
 }
 
 inline void lexer::token::clear() noexcept
 {
-    m_text.clear();
+    m_string.clear();
     m_flags         = 0;
     m_line_num      = 0;
     m_lines_crossed = 0;
@@ -954,15 +968,13 @@ inline bool ignore_trailing_comma(lexer * lex, const int i, const int num)
     }
     else // Last value, a trailing comma is ignored.
     {
-        if (!lex->read_next_token(&tok))
+        if (!lex->next_token(&tok))
         {
             return false;
         }
-
-        if (!tok.is_punctuation() ||
-            (tok.get_flags() != static_cast<std::uint32_t>(lexer::punctuation_id::comma)))
+        if (!lexer::is_punctuation_token(tok, lexer::punctuation_id::comma))
         {
-            lex->unread_token(tok);
+            lex->unget_token(tok);
         }
     }
     return true;
@@ -977,6 +989,12 @@ inline bool ignore_trailing_comma(lexer * lex, const int i, const int num)
 inline void lexer::set_flags(const std::uint32_t new_flags) noexcept
 {
     m_flags = new_flags;
+}
+
+inline void lexer::set_line_number(const std::uint32_t new_line_num) noexcept
+{
+    m_line_num      = new_line_num;
+    m_last_line_num = new_line_num;
 }
 
 inline bool lexer::is_initialized() const noexcept
@@ -1027,6 +1045,11 @@ inline std::uint32_t lexer::get_warning_count() const noexcept
 inline const std::string & lexer::get_filename() const noexcept
 {
     return m_filename;
+}
+
+inline std::size_t lexer::get_last_whitespace_length() const noexcept
+{
+    return static_cast<std::size_t>(m_whitespace_end_ptr - m_whitespace_start_ptr);
 }
 
 inline std::size_t lexer::get_last_whitespace_start() const noexcept
@@ -1176,6 +1199,12 @@ inline bool lexer::scan_matrix3d(const int z, const int y, const int x, NumType 
     return true;
 }
 
+inline bool lexer::is_punctuation_token(const token & tok, const punctuation_id id) noexcept
+{
+    // When a punctuation token, the flags will store the punctuation_id converted to integer.
+    return tok.is_punctuation() && (tok.get_flags() == static_cast<std::uint32_t>(id));
+}
+
 // ================== End of header file ==================
 #endif // LEXER_HPP
 // ================== End of header file ==================
@@ -1199,7 +1228,7 @@ inline bool lexer::scan_matrix3d(const int z, const int y, const int x, NumType 
 
 void lexer::token::update_cached_values() const noexcept
 {
-    const char * p = m_text.c_str();
+    const char * p = m_string.c_str();
     std::uint64_t new_u64_val = 0;
     double new_double_val = 0.0;
 
@@ -1370,6 +1399,44 @@ void lexer::token::update_cached_values() const noexcept
     m_u64_value    = new_u64_val;
     m_double_value = new_double_val;
     m_values_valid = true;
+}
+
+lexer::token lexer::token::stringize() const
+{
+    // Flags the token as a string for the C preprocessor stringizing operator (#)
+    // and adds double quotes as needed.
+    token str_token;
+
+    str_token.m_type          = type::string;
+    str_token.m_line_num      = m_line_num;
+    str_token.m_lines_crossed = m_lines_crossed;
+
+    if (!m_string.empty() && m_string[0] == '"')
+    {
+        str_token.m_string.push_back('"');
+        str_token.m_string.push_back('\\');
+        str_token.m_string.append(m_string);
+        lexer::rtrim_string(&str_token.m_string);
+        str_token.m_string.back() = '\\';
+        str_token.m_string.push_back('"');
+        str_token.m_string.push_back('"');
+    }
+    else
+    {
+        str_token.m_string.push_back('"');
+        str_token.m_string.append(m_string);
+        lexer::rtrim_string(&str_token.m_string);
+        str_token.m_string.push_back('"');
+    }
+
+    return str_token;
+}
+
+lexer::token lexer::token::trim() const
+{
+    token t{ *this };
+    lexer::trim_string(&t.m_string);
+    return t;
 }
 
 std::string lexer::token::type_string(const token::type type)
@@ -1688,7 +1755,7 @@ bool lexer::load_text_file(const std::string & filename, char ** out_file_conten
     return true;
 }
 
-bool lexer::read_next_token(token * out_token)
+bool lexer::next_token(token * out_token)
 {
     assert(out_token != nullptr);
 
@@ -1697,7 +1764,7 @@ bool lexer::read_next_token(token * out_token)
         return error("lexer not properly initialized; no script loaded!");
     }
 
-    // If there is a token available (from unread_token)...
+    // If there is a token available (from unget_token)...
     if (m_token_available)
     {
         *out_token = std::move(m_leftover_token);
@@ -1795,12 +1862,12 @@ bool lexer::read_next_token(token * out_token)
     return true;
 }
 
-bool lexer::read_next_token_on_line(token * out_token)
+bool lexer::next_token_on_line(token * out_token)
 {
     assert(out_token != nullptr);
 
     token tok;
-    if (!read_next_token(&tok))
+    if (!next_token(&tok))
     {
         m_script_ptr = m_last_script_ptr;
         m_line_num   = m_last_line_num;
@@ -1831,7 +1898,7 @@ bool lexer::expect_token_char(const char c, token * out_token)
 {
     assert(out_token != nullptr);
 
-    if (!read_next_token(out_token))
+    if (!next_token(out_token))
     {
         return error("couldn't find expected token \'" + std::string(1, c) + "\'");
     }
@@ -1853,7 +1920,7 @@ bool lexer::expect_token_string(const char * const string, token * out_token)
     assert(string    != nullptr);
     assert(out_token != nullptr);
 
-    if (!read_next_token(out_token))
+    if (!next_token(out_token))
     {
         return error("couldn't find expected token \'" + std::string(string) + "\'");
     }
@@ -1868,7 +1935,7 @@ bool lexer::expect_token_type(const token::type type, const std::uint32_t subtyp
 {
     assert(out_token != nullptr);
 
-    if (!read_next_token(out_token))
+    if (!next_token(out_token))
     {
         return error("couldn't read expected token!");
     }
@@ -1911,7 +1978,7 @@ bool lexer::expect_token_type(const token::type type, const std::uint32_t subtyp
 bool lexer::expect_any_token(token * out_token)
 {
     assert(out_token != nullptr);
-    if (!read_next_token(out_token))
+    if (!next_token(out_token))
     {
         return error("couldn't read expected token!");
     }
@@ -1929,7 +1996,7 @@ bool lexer::check_token_string(const char * const string, token * out_token)
     assert(string    != nullptr);
     assert(out_token != nullptr);
 
-    if (!read_next_token(out_token))
+    if (!next_token(out_token))
     {
         return false;
     }
@@ -1952,7 +2019,7 @@ bool lexer::check_token_type(const token::type type, const std::uint32_t subtype
     assert(out_token != nullptr);
 
     token tok;
-    if (!read_next_token(&tok))
+    if (!next_token(&tok))
     {
         return false;
     }
@@ -1974,7 +2041,7 @@ bool lexer::peek_token_string(const char * const string)
     assert(string != nullptr);
 
     token tok;
-    if (!read_next_token(&tok))
+    if (!next_token(&tok))
     {
         return false;
     }
@@ -1996,7 +2063,7 @@ bool lexer::peek_token_type(const token::type type, const std::uint32_t subtype_
     assert(out_token != nullptr);
 
     token tok;
-    if (!read_next_token(&tok))
+    if (!next_token(&tok))
     {
         return false;
     }
@@ -2019,7 +2086,7 @@ bool lexer::skip_until_string(const char * const string)
     assert(string != nullptr);
 
     token tok;
-    while (read_next_token(&tok))
+    while (next_token(&tok))
     {
         if (tok == string)
         {
@@ -2032,7 +2099,7 @@ bool lexer::skip_until_string(const char * const string)
 bool lexer::skip_rest_of_line()
 {
     token tok;
-    while (read_next_token(&tok))
+    while (next_token(&tok))
     {
         if (tok.get_lines_crossed() != 0)
         {
@@ -2044,28 +2111,28 @@ bool lexer::skip_rest_of_line()
     return false;
 }
 
-bool lexer::skip_braced_section(const bool scan_first_brace)
+bool lexer::skip_bracketed_section(const bool scan_first_bracket)
 {
-    // Skips until a matching close brace is found.
-    // Internal brace depths are properly skipped.
+    // Skips until a matching close curly bracket is found.
+    // Internal bracket depths are properly skipped.
 
     token tok;
-    int depth = (scan_first_brace ? 0 : 1);
+    int depth = (scan_first_bracket ? 0 : 1);
 
     do
     {
-        if (!read_next_token(&tok))
+        if (!next_token(&tok))
         {
             return false;
         }
 
         if (tok.get_type() == token::type::punctuation)
         {
-            if (tok == '{')
+            if (is_punctuation_token(tok, punctuation_id::open_curly_bracket))
             {
                 ++depth;
             }
-            else if (tok == '}')
+            else if (is_punctuation_token(tok, punctuation_id::close_curly_bracket))
             {
                 --depth;
             }
@@ -2180,51 +2247,21 @@ bool lexer::skip_whitespace(const bool current_line)
     return true;
 }
 
-void lexer::unread_token(const token & in_token)
+void lexer::unget_token(const token & in_token)
 {
     if (m_token_available)
     {
-        warning("lexer::unread_token() called twice in a row!");
+        warning("lexer::unget_token() called twice in a row!");
     }
 
     m_leftover_token  = in_token;
     m_token_available = true;
 }
 
-std::string lexer::read_rest_of_line()
-{
-    std::string out;
-
-    for (;; ++m_script_ptr)
-    {
-        if (*m_script_ptr == '\n')
-        {
-            ++m_line_num;
-            break;
-        }
-        if (*m_script_ptr == '\0')
-        {
-            break;
-        }
-
-        if (*m_script_ptr <= ' ')
-        {
-            out.push_back(' ');
-        }
-        else
-        {
-            out.push_back(*m_script_ptr);
-        }
-    }
-
-    lexer::trim_string(&out);
-    return out;
-}
-
 bool lexer::scan_bool()
 {
     token tok;
-    if (!read_next_token(&tok))
+    if (!next_token(&tok))
     {
         return error("couldn't read expected boolean literal!");
     }
@@ -2245,7 +2282,7 @@ bool lexer::scan_bool()
 double lexer::scan_double()
 {
     token tok;
-    if (!read_next_token(&tok))
+    if (!next_token(&tok))
     {
         error("couldn't read expected floating-point number!");
         return 0.0;
@@ -2293,7 +2330,7 @@ double lexer::scan_double()
 std::uint64_t lexer::scan_uint64()
 {
     token tok;
-    if (!read_next_token(&tok))
+    if (!next_token(&tok))
     {
         error("couldn't read expected unsigned integer number!");
         return 0;
@@ -2334,7 +2371,7 @@ std::uint64_t lexer::scan_uint64()
 std::int64_t lexer::scan_int64()
 {
     token tok;
-    if (!read_next_token(&tok))
+    if (!next_token(&tok))
     {
         error("couldn't read expected integer number!");
         return 0;
@@ -2375,7 +2412,7 @@ std::string lexer::scan_string()
     token tok;
     std::string out;
 
-    if (!read_next_token(&tok))
+    if (!next_token(&tok))
     {
         error("couldn't read expected string!");
         return out;
@@ -2392,17 +2429,18 @@ std::string lexer::scan_string()
     return out;
 }
 
-std::string lexer::scan_braced_section()
+std::string lexer::scan_bracketed_section()
 {
-    // The next token should be an open brace.
-    // Scans until a matching close brace is found.
-    // Internal brace depths are properly skipped.
+    // The next token should be an open curly bracket.
+    // Scans until a matching close bracket is found.
+    // Internal bracket depths are properly skipped.
 
     token tok;
     int depth;
     std::string out;
 
-    if (!expect_token_char('{'))
+    if (!expect_token_type(lexer::token::type::punctuation,
+        static_cast<std::uint32_t>(lexer::punctuation_id::open_curly_bracket), &tok))
     {
         return out;
     }
@@ -2412,7 +2450,7 @@ std::string lexer::scan_braced_section()
 
     do
     {
-        if (!read_next_token(&tok))
+        if (!next_token(&tok))
         {
             error("missing closing \'{\'!");
             return out;
@@ -2426,11 +2464,11 @@ std::string lexer::scan_braced_section()
 
         if (tok.get_type() == token::type::punctuation)
         {
-            if (tok[0] == '{')
+            if (is_punctuation_token(tok, punctuation_id::open_curly_bracket))
             {
                 ++depth;
             }
-            else if (tok[0] == '}')
+            else if (is_punctuation_token(tok, punctuation_id::close_curly_bracket))
             {
                 --depth;
             }
@@ -2453,7 +2491,7 @@ std::string lexer::scan_braced_section()
     return out;
 }
 
-std::string lexer::scan_braced_section_exact(int tabs)
+std::string lexer::scan_bracketed_section_exact(int tabs)
 {
     std::string out;
     if (!expect_token_char('{'))
@@ -2527,7 +2565,7 @@ std::string lexer::scan_rest_of_line()
     token tok;
     std::string out;
 
-    while (read_next_token(&tok))
+    while (next_token(&tok))
     {
         if (tok.get_lines_crossed() != 0)
         {
@@ -2552,7 +2590,6 @@ std::string lexer::scan_complete_line()
     // whitespace at the beginning of the next line.
 
     const char * start_ptr = m_script_ptr;
-
     for (;; ++m_script_ptr)
     {
         if (*m_script_ptr == '\0')
@@ -2684,7 +2721,7 @@ bool lexer::internal_read_escape_character(char * out_char)
     // Determine the escape character:
     switch (*m_script_ptr)
     {
-    case '\\' : c = '\\'; break;
+    case '0'  : c = '\0'; break;
     case 'n'  : c = '\n'; break;
     case 'r'  : c = '\r'; break;
     case 't'  : c = '\t'; break;
@@ -2692,8 +2729,9 @@ bool lexer::internal_read_escape_character(char * out_char)
     case 'b'  : c = '\b'; break;
     case 'f'  : c = '\f'; break;
     case 'a'  : c = '\a'; break;
+    case '\\' : c = '\\'; break;
     case '\'' : c = '\''; break;
-    case '"'  : c = '"';  break;
+    case '\"' : c = '\"'; break;
     case '\?' : c = '\?'; break;
     case 'x'  : // Scan hexadecimal constant:
         {
@@ -2873,9 +2911,9 @@ bool lexer::internal_read_string(const int quote, token * out_token)
     {
         if (!(m_flags & flags::allow_multi_char_literals))
         {
-            if (out_token->get_length() != 1)
+            if (out_token->get_length() > 1)
             {
-                return error("char literal is not one character long! Set lexer::flags::allow_multi_char_literals to allow them.");
+                return error("char literal is not one character long! Set \'lexer::flags::allow_multi_char_literals\' to allow them.");
             }
         }
     }

@@ -84,7 +84,7 @@ static void lex_test_scan_num_and_string_values()
     #if LEX_TESTS_VERBOSE
     lexer::token tok;
     lex.reset();
-    while (lex.read_next_token(&tok))
+    while (lex.next_token(&tok))
     {
         print_token(tok);
     }
@@ -306,7 +306,7 @@ static void lex_test_word_count()
     lexer::token word;
     int word_count = 0;
 
-    while (lex.read_next_token(&word))
+    while (lex.next_token(&word))
     {
         if (word.is_identifier())
         {

@@ -59,7 +59,7 @@ void parse_file(std::string filename, sections_list * out_sections)
 
     lex.init_from_file(std::move(filename), lexer::flags::allow_ip_addresses);
 
-    while (lex.read_next_token(&tok))
+    while (lex.next_token(&tok))
     {
         if (tok.is_punctuation())
         {
