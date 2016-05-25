@@ -441,7 +441,8 @@ public:
     ~lexer();
 
     // Load a script from the given file in the file system.
-    bool init_from_file(std::string filename, std::uint32_t flags = 0);
+    // If 'silent' is true, no warnings or errors will be printed. The function might still fail and return false.
+    bool init_from_file(std::string filename, std::uint32_t flags = 0, bool silent = false);
 
     // Load a script from the given memory buffer with given length and a specified line offset,
     // so source strings extracted from a file can still refer to proper line numbers in the file.
@@ -450,12 +451,18 @@ public:
     bool init_from_memory(const char * ptr, std::uint32_t length, std::string filename,
                           std::uint32_t flags = 0, std::uint32_t starting_line = 1);
 
-    // Free the script and any associated data. Flags stay the same.
+    // Frees the script, filename and any associated data. Flags stay the same.
+    // Most internal states are reset to initials.
     void clear() noexcept;
 
     // Reset the lexer to the beginning of its text input.
     // This will also clear the error and warning counters. Flags stay the same.
     void reset() noexcept;
+
+    // If the lexer has allocated dynamic memory for the script source, free it.
+    // This will not clear the filename, flags or error/warn counts, so can still
+    // use the lexer instance to print info about the script.
+    void free_script_source() noexcept;
 
     // Lexer flags can be changed at any time during scanning.
     void set_flags(std::uint32_t new_flags) noexcept;
@@ -999,7 +1006,7 @@ inline void lexer::set_line_number(const std::uint32_t new_line_num) noexcept
 
 inline bool lexer::is_initialized() const noexcept
 {
-    return m_initialized;
+    return m_initialized && m_script_ptr != nullptr;
 }
 
 inline bool lexer::is_at_end() const noexcept
@@ -1561,13 +1568,16 @@ lexer::~lexer()
     }
 }
 
-bool lexer::init_from_file(std::string filename, const std::uint32_t flags)
+bool lexer::init_from_file(std::string filename, const std::uint32_t flags, const bool silent)
 {
-    assert(!filename.empty());
+    if (filename.empty())
+    {
+        return (!silent ? error("lexer::init_from_file() -> no filename provided!") : false);
+    }
 
     if (m_initialized)
     {
-        return error("lexer::init_from_file() -> another script is already loaded!");
+        return (!silent ? error("lexer::init_from_file() -> another script is already loaded!") : false);
     }
 
     char * file_contents;
@@ -1575,7 +1585,7 @@ bool lexer::init_from_file(std::string filename, const std::uint32_t flags)
 
     if (!load_text_file(filename, &file_contents, &file_length))
     {
-        return error("lexer::init_from_file() -> failed to load text file \"" + filename + "\".");
+        return (!silent ? error("lexer::init_from_file() -> failed to load text file \"" + filename + "\".") : false);
     }
 
     m_filename        = std::move(filename);
@@ -1626,29 +1636,10 @@ bool lexer::init_from_memory(const char * ptr, const std::uint32_t length, std::
 
 void lexer::clear() noexcept
 {
-    if (m_allocated && m_buffer_head_ptr != nullptr)
-    {
-        delete[] m_buffer_head_ptr;
-    }
-
-    m_buffer_head_ptr      = nullptr;
-    m_script_ptr           = nullptr;
-    m_end_ptr              = nullptr;
-    m_last_script_ptr      = nullptr;
-    m_whitespace_start_ptr = nullptr;
-    m_whitespace_end_ptr   = nullptr;
-    m_last_line_num        = 0;
-    m_line_num             = 0;
-    m_script_length        = 0;
-    m_error_count          = 0;
-    m_warn_count           = 0;
-    m_token_available      = false;
-    m_initialized          = false;
-    m_allocated            = false;
-
-    m_leftover_token.clear();
+    free_script_source();
+    m_error_count = 0;
+    m_warn_count  = 0;
     m_filename.clear();
-
     // Note: m_flags remain unchanged.
 }
 
@@ -1663,6 +1654,29 @@ void lexer::reset() noexcept
     m_error_count          = 0;
     m_warn_count           = 0;
     m_token_available      = false;
+
+    m_leftover_token.clear();
+}
+
+void lexer::free_script_source() noexcept
+{
+    if (m_allocated && m_buffer_head_ptr != nullptr)
+    {
+        delete[] m_buffer_head_ptr;
+    }
+
+    m_buffer_head_ptr      = nullptr;
+    m_script_ptr           = nullptr;
+    m_end_ptr              = nullptr;
+    m_last_script_ptr      = nullptr;
+    m_whitespace_start_ptr = nullptr;
+    m_whitespace_end_ptr   = nullptr;
+    m_last_line_num        = 0;
+    m_line_num             = 0;
+    m_script_length        = 0;
+    m_token_available      = false;
+    m_initialized          = false;
+    m_allocated            = false;
 
     m_leftover_token.clear();
 }
@@ -1682,7 +1696,7 @@ bool lexer::error(const std::string & message)
     const std::string err_tag = " error: ";
 #endif // LEXER_ERROR_WARN_USE_ANSI_COLOR_CODES
 
-    const std::string error_str = get_filename() + "(" + std::to_string(get_line_number()) + "):" + err_tag + message;
+    const std::string error_str = get_filename() + "(" + std::to_string(m_last_line_num) + "):" + err_tag + message;
     const bool is_fatal_error = !(m_flags & flags::no_fatal_errors);
     m_error_callbacks->error(error_str, is_fatal_error);
 
@@ -1705,7 +1719,7 @@ void lexer::warning(const std::string & message)
     const std::string warn_tag = " warning: ";
 #endif // LEXER_ERROR_WARN_USE_ANSI_COLOR_CODES
 
-    const std::string warn_str = get_filename() + "(" + std::to_string(get_line_number()) + "):" + warn_tag + message;
+    const std::string warn_str = get_filename() + "(" + std::to_string(m_last_line_num) + "):" + warn_tag + message;
     m_error_callbacks->warning(warn_str);
 }
 
@@ -1759,7 +1773,7 @@ bool lexer::next_token(token * out_token)
 {
     assert(out_token != nullptr);
 
-    if (!m_initialized || m_script_ptr == nullptr)
+    if (!is_initialized())
     {
         return error("lexer not properly initialized; no script loaded!");
     }
