@@ -17,9 +17,23 @@
 #ifndef PREPROCESSOR_HPP
 #define PREPROCESSOR_HPP
 
-#include <cstdint>
-#include <string>
-#include <vector>
+// Defining this before including the file prevents pulling the Standard headers.
+// Useful to be able to place this file inside a user-defined namespace or to simply
+// avoid redundant inclusions. User is responsible for providing all the necessary
+// Standard headers before #including this one.
+#ifndef PREPROCESSOR_NO_STD_INCLUDES
+    #include <cstdint>
+    #include <string>
+    #include <vector>
+#endif // PREPROCESSOR_NO_STD_INCLUDES
+
+// Hook to allow providing a custom assert() before including this file.
+#ifndef PREPROCESSOR_ASSERT
+    #ifndef PREPROCESSOR_NO_STD_INCLUDES
+        #include <cassert>
+    #endif // PREPROCESSOR_NO_STD_INCLUDES
+    #define PREPROCESSOR_ASSERT assert
+#endif // PREPROCESSOR_ASSERT
 
 //
 // (Mostly) compatible C and C++ source code preprocessor.
@@ -323,12 +337,13 @@ private:
 
 #ifdef PREPROCESSOR_IMPLEMENTATION
 
-#include <cassert>
-#include <cmath>
-#include <ctime>
-#include <cstdio>
-#include <cstring>
-#include <utility>
+#ifndef PREPROCESSOR_NO_STD_INCLUDES
+    #include <cmath>
+    #include <ctime>
+    #include <cstdio>
+    #include <cstring>
+    #include <utility>
+#endif // PREPROCESSOR_NO_STD_INCLUDES
 
 #define PREPROC_FLOAT_FMT   "%.20lf"
 #define PREPROC_INT64_FMT   "%lli"
@@ -386,7 +401,7 @@ public:
         : m_preproc{ pp }
         , m_next_token_index{ 0 }
     {
-        assert(pp != nullptr);
+        PREPROCESSOR_ASSERT(pp != nullptr);
     }
 
     void push_token(lexer::token && tok)
@@ -578,7 +593,7 @@ private:
 
     bool process_tokens(eval_value * result_value, const std::uint32_t flags)
     {
-        assert(result_value != nullptr);
+        PREPROCESSOR_ASSERT(result_value != nullptr);
 
         // Nodes for the below lists are sourced from this fixed-length static stack,
         // so we avoid allocating any extra heap memory for the expression evaluation.
@@ -1085,7 +1100,7 @@ private:
             list_remove_link(&first_operator, &last_operator, o);
         } // while more operators
 
-        assert(first_value != nullptr);
+        PREPROCESSOR_ASSERT(first_value != nullptr);
         *result_value = first_value->value;
         return true;
     }
@@ -1231,7 +1246,7 @@ private:
 
     bool apply_op_int(eval_value * out_result, const std::int64_t lhs, const std::int64_t rhs, const lexer::punctuation_id op)
     {
-        assert(out_result != nullptr);
+        PREPROCESSOR_ASSERT(out_result != nullptr);
 
         const bool is_division = (op == lexer::punctuation_id::div || op == lexer::punctuation_id::mod);
         if (is_division && rhs == 0)
@@ -1270,7 +1285,7 @@ private:
 
     bool apply_op_double(eval_value * out_result, const double lhs, const double rhs, const lexer::punctuation_id op)
     {
-        assert(out_result != nullptr);
+        PREPROCESSOR_ASSERT(out_result != nullptr);
 
         if (op == lexer::punctuation_id::div && rhs == 0.0)
         {
@@ -1859,7 +1874,7 @@ bool preprocessor::init_from_lexer(lexer * initial_script, const std::uint32_t f
 
 bool preprocessor::preprocess(std::string * out_text_buffer)
 {
-    assert(out_text_buffer != nullptr);
+    PREPROCESSOR_ASSERT(out_text_buffer != nullptr);
     if (m_current_script == nullptr)
     {
         return false;
@@ -1881,7 +1896,7 @@ bool preprocessor::preprocess(std::string * out_text_buffer)
 
                 // The top of the dynamic scripts stack is the lexer
                 // instance for the include file we've just finished.
-                assert(!m_dynamic_scripts.empty());
+                PREPROCESSOR_ASSERT(!m_dynamic_scripts.empty());
                 m_dynamic_scripts.back()->free_script_source();
                 continue;
             }
@@ -1928,7 +1943,7 @@ bool preprocessor::preprocess(std::string * out_text_buffer)
         output_append_token_text(tok, out_text_buffer);
     }
 
-    assert(m_include_stack.empty());
+    PREPROCESSOR_ASSERT(m_include_stack.empty());
     return true;
 }
 
@@ -1969,7 +1984,7 @@ bool preprocessor::skip_rest_of_line()
 
 bool preprocessor::read_line(std::string * out_line)
 {
-    assert(out_line != nullptr);
+    PREPROCESSOR_ASSERT(out_line != nullptr);
 
     lexer::token tok;
     bool got_backlash = false;
@@ -2015,8 +2030,8 @@ bool preprocessor::check_preproc(const lexer::token & tok) const noexcept
 
 bool preprocessor::resolve_preproc_and_append(const lexer::token & tok, std::string * out_text_buffer)
 {
-    assert(out_text_buffer != nullptr);
-    assert(tok.is_punctuation()); // # or $
+    PREPROCESSOR_ASSERT(out_text_buffer != nullptr);
+    PREPROCESSOR_ASSERT(tok.is_punctuation()); // # or $
 
     if (lexer::is_punctuation_token(tok, lexer::punctuation_id::preprocessor)) // #
     {
@@ -2224,7 +2239,7 @@ bool preprocessor::resolve_dollar_directive(std::string * out_text_buffer)
 
 std::uint32_t preprocessor::hash_string(const char * const str, const std::size_t count)
 {
-    assert(str != nullptr);
+    PREPROCESSOR_ASSERT(str != nullptr);
 
     //
     // Simple and fast One-at-a-Time (OAT) hash algorithm:
@@ -2437,7 +2452,7 @@ const lexer::token * preprocessor::find_macro_tokens(const std::string & macro_n
 
 bool preprocessor::find_macro_value(const std::string & macro_name, std::string * out_value) const
 {
-    assert(out_value != nullptr);
+    PREPROCESSOR_ASSERT(out_value != nullptr);
 
     lexer::token tok;
     if (!find_macro_token(macro_name, &tok))
@@ -2451,7 +2466,7 @@ bool preprocessor::find_macro_value(const std::string & macro_name, std::string 
 
 bool preprocessor::find_macro_value(const std::string & macro_name, std::int64_t * out_value) const
 {
-    assert(out_value != nullptr);
+    PREPROCESSOR_ASSERT(out_value != nullptr);
 
     lexer::token tok;
     if (!find_macro_token(macro_name, &tok) || !tok.is_number())
@@ -2465,7 +2480,7 @@ bool preprocessor::find_macro_value(const std::string & macro_name, std::int64_t
 
 bool preprocessor::find_macro_value(const std::string & macro_name, double * out_value) const
 {
-    assert(out_value != nullptr);
+    PREPROCESSOR_ASSERT(out_value != nullptr);
 
     lexer::token tok;
     if (!find_macro_token(macro_name, &tok) || !tok.is_number())
@@ -2492,7 +2507,7 @@ bool preprocessor::macro_is_builtin(const macro_def & macro) const noexcept
 
 void preprocessor::macro_expand_builtin(const macro_def & macro, std::string * out_text_buffer, macro_parameter_pack * va_args)
 {
-    assert(out_text_buffer != nullptr);
+    PREPROCESSOR_ASSERT(out_text_buffer != nullptr);
 
     if (m_current_script == nullptr)
     {
@@ -2685,8 +2700,8 @@ void preprocessor::macro_clear_tokens(const macro_def & macro)
 bool preprocessor::expand_macro_and_append(const int macro_index, std::string * out_text_buffer,
                                            macro_parameter_pack * param_pack, macro_parameter_pack * parent_pack)
 {
-    assert(out_text_buffer != nullptr);
-    assert(param_pack      != nullptr);
+    PREPROCESSOR_ASSERT(out_text_buffer != nullptr);
+    PREPROCESSOR_ASSERT(param_pack      != nullptr);
 
     lexer::token tok;
     const macro_def macro = m_macros[macro_index];
@@ -2756,7 +2771,7 @@ bool preprocessor::expand_macro_and_append(const int macro_index, std::string * 
                         // We have to preserve the commas for a __VA_ARGS__ reference in
                         // the parameter list of another macro, so it gets expanded here
                         // instead of using the recursive expansion that writes into the string.
-                        assert(parent_pack != nullptr);
+                        PREPROCESSOR_ASSERT(parent_pack != nullptr);
                         while (parent_pack->next_token(&tok))
                         {
                             params_provided.push_back(std::move(tok));
@@ -3031,7 +3046,7 @@ bool preprocessor::expand_macro_and_append(const int macro_index, std::string * 
 int preprocessor::expand_recursive_macro_and_append(const int macro_index, const int other_macro_index, const int token_index,
                                                     const std::vector<lexer::token> * const params_provided, std::string * out_text_buffer)
 {
-    assert(out_text_buffer != nullptr);
+    PREPROCESSOR_ASSERT(out_text_buffer != nullptr);
 
     // Obviously referencing itself in the body would result in infinite recursion.
     if (macro_index == other_macro_index)
@@ -3067,7 +3082,7 @@ int preprocessor::expand_recursive_macro_and_append(const int macro_index, const
 void preprocessor::output_append_token_text(const lexer::token & tok, std::string * out_text_buffer,
                                             const bool no_string_escape, const bool no_whitespace)
 {
-    assert(out_text_buffer != nullptr);
+    PREPROCESSOR_ASSERT(out_text_buffer != nullptr);
 
     if (!no_whitespace && !tok.is_punctuation() && m_prev_token_type != lexer::token::type::punctuation)
     {
@@ -3098,7 +3113,7 @@ void preprocessor::output_append_token_text(const lexer::token & tok, std::strin
 
 void preprocessor::string_append_token(const lexer::token & tok, std::string * out_str)
 {
-    assert(out_str != nullptr);
+    PREPROCESSOR_ASSERT(out_str != nullptr);
 
     if (tok.is_string())
     {
@@ -3200,7 +3215,7 @@ bool preprocessor::pop_conditional(conditional_type * out_type, bool * out_skip,
 
 bool preprocessor::evaluate_preproc_conditional(bool * out_result)
 {
-    assert(out_result != nullptr);
+    PREPROCESSOR_ASSERT(out_result != nullptr);
 
     expr_evaluator evaluator{ this };
     expr_evaluator::eval_value expr_result;
@@ -3627,7 +3642,7 @@ bool preprocessor::resolve_pragma_directive()
 
         if (include_count > 1)
         {
-            assert(!m_include_stack.empty());
+            PREPROCESSOR_ASSERT(!m_include_stack.empty());
             m_current_script = m_include_stack.back();
             m_include_stack.pop_back();
             return true;
@@ -3885,7 +3900,7 @@ bool preprocessor::eval(const std::string & expression, std::int64_t * out_i_res
     }
     else
     {
-        assert(expr_result.type == expr_evaluator::eval_type_double);
+        PREPROCESSOR_ASSERT(expr_result.type == expr_evaluator::eval_type_double);
 
         if (out_i_result != nullptr)
         {

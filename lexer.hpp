@@ -18,15 +18,28 @@
 #ifndef LEXER_HPP
 #define LEXER_HPP
 
-#include <cassert>
-#include <cstdint>
-#include <string>
-#include <type_traits>
+// Defining this before including the file prevents pulling the Standard headers.
+// Useful to be able to place this file inside a user-defined namespace or to simply
+// avoid redundant inclusions. User is responsible for providing all the necessary
+// Standard headers before #including this one.
+#ifndef LEXER_NO_STD_INCLUDES
+    #include <cstdint>
+    #include <string>
+    #include <type_traits>
+#endif // LEXER_NO_STD_INCLUDES
+
+// Hook to allow providing a custom assert() before including this file.
+#ifndef LEXER_ASSERT
+    #ifndef LEXER_NO_STD_INCLUDES
+        #include <cassert>
+    #endif // LEXER_NO_STD_INCLUDES
+    #define LEXER_ASSERT assert
+#endif // LEXER_ASSERT
 
 // The use of exceptions for error handling can be disabled via this preprocessor.
-#ifndef LEXER_NO_CXX_EXCEPTIONS
+#if (!defined(LEXER_NO_CXX_EXCEPTIONS) && !defined(LEXER_NO_STD_INCLUDES))
     #include <stdexcept>
-#endif // LEXER_NO_CXX_EXCEPTIONS
+#endif // !LEXER_NO_CXX_EXCEPTIONS && !LEXER_NO_STD_INCLUDES
 
 //
 // ----------
@@ -883,7 +896,7 @@ inline void lexer::token::append(const char * str)
 
 inline char lexer::token::operator[](const int index) const
 {
-    assert(index >= 0 && static_cast<std::size_t>(index) < m_string.length());
+    LEXER_ASSERT(index >= 0 && static_cast<std::size_t>(index) < m_string.length());
     return m_string[index];
 }
 
@@ -1112,7 +1125,7 @@ inline bool lexer::scan_matrix1d(const int x, NumType * out_mat,
     static_assert(std::is_floating_point<NumType>::value || std::is_integral<NumType>::value,
                   "Floating-point or integer type required!");
 
-    assert(out_mat != nullptr);
+    LEXER_ASSERT(out_mat != nullptr);
 
     if (!expect_token_string(open_delim))
     {
@@ -1144,7 +1157,7 @@ inline bool lexer::scan_matrix2d(const int y, const int x, NumType * out_mat,
     static_assert(std::is_floating_point<NumType>::value || std::is_integral<NumType>::value,
                   "Floating-point or integer type required!");
 
-    assert(out_mat != nullptr);
+    LEXER_ASSERT(out_mat != nullptr);
 
     if (!expect_token_string(open_delim))
     {
@@ -1179,7 +1192,7 @@ inline bool lexer::scan_matrix3d(const int z, const int y, const int x, NumType 
     static_assert(std::is_floating_point<NumType>::value || std::is_integral<NumType>::value,
                   "Floating-point or integer type required!");
 
-    assert(out_mat != nullptr);
+    LEXER_ASSERT(out_mat != nullptr);
 
     if (!expect_token_string(open_delim))
     {
@@ -1224,10 +1237,12 @@ inline bool lexer::is_punctuation_token(const token & tok, const punctuation_id 
 
 #ifdef LEXER_IMPLEMENTATION
 
-#include <cstdio>
-#include <cstring>
-#include <iostream>
-#include <algorithm>
+#ifndef LEXER_NO_STD_INCLUDES
+    #include <cstdio>
+    #include <cstring>
+    #include <iostream>
+    #include <algorithm>
+#endif // LEXER_NO_STD_INCLUDES
 
 // ========================================================
 // token class:
@@ -1606,7 +1621,7 @@ bool lexer::init_from_file(std::string filename, const std::uint32_t flags, cons
 bool lexer::init_from_memory(const char * ptr, const std::uint32_t length, std::string filename,
                              const std::uint32_t flags, const std::uint32_t starting_line)
 {
-    assert(ptr != nullptr);
+    LEXER_ASSERT(ptr != nullptr);
 
     if (m_initialized)
     {
@@ -1725,9 +1740,9 @@ void lexer::warning(const std::string & message)
 
 bool lexer::load_text_file(const std::string & filename, char ** out_file_contents, std::uint32_t * out_file_length)
 {
-    assert(!filename.empty());
-    assert(out_file_contents != nullptr);
-    assert(out_file_length   != nullptr);
+    LEXER_ASSERT(!filename.empty());
+    LEXER_ASSERT(out_file_contents != nullptr);
+    LEXER_ASSERT(out_file_length   != nullptr);
 
     FILE * file_in;
 
@@ -1771,7 +1786,7 @@ bool lexer::load_text_file(const std::string & filename, char ** out_file_conten
 
 bool lexer::next_token(token * out_token)
 {
-    assert(out_token != nullptr);
+    LEXER_ASSERT(out_token != nullptr);
 
     if (!is_initialized())
     {
@@ -1878,7 +1893,7 @@ bool lexer::next_token(token * out_token)
 
 bool lexer::next_token_on_line(token * out_token)
 {
-    assert(out_token != nullptr);
+    LEXER_ASSERT(out_token != nullptr);
 
     token tok;
     if (!next_token(&tok))
@@ -1910,7 +1925,7 @@ bool lexer::expect_token_char(const char c)
 
 bool lexer::expect_token_char(const char c, token * out_token)
 {
-    assert(out_token != nullptr);
+    LEXER_ASSERT(out_token != nullptr);
 
     if (!next_token(out_token))
     {
@@ -1931,8 +1946,8 @@ bool lexer::expect_token_string(const char * const string)
 
 bool lexer::expect_token_string(const char * const string, token * out_token)
 {
-    assert(string    != nullptr);
-    assert(out_token != nullptr);
+    LEXER_ASSERT(string    != nullptr);
+    LEXER_ASSERT(out_token != nullptr);
 
     if (!next_token(out_token))
     {
@@ -1947,7 +1962,7 @@ bool lexer::expect_token_string(const char * const string, token * out_token)
 
 bool lexer::expect_token_type(const token::type type, const std::uint32_t subtype_flags, token * out_token)
 {
-    assert(out_token != nullptr);
+    LEXER_ASSERT(out_token != nullptr);
 
     if (!next_token(out_token))
     {
@@ -1991,7 +2006,7 @@ bool lexer::expect_token_type(const token::type type, const std::uint32_t subtyp
 
 bool lexer::expect_any_token(token * out_token)
 {
-    assert(out_token != nullptr);
+    LEXER_ASSERT(out_token != nullptr);
     if (!next_token(out_token))
     {
         return error("couldn't read expected token!");
@@ -2007,8 +2022,8 @@ bool lexer::check_token_string(const char * const string)
 
 bool lexer::check_token_string(const char * const string, token * out_token)
 {
-    assert(string    != nullptr);
-    assert(out_token != nullptr);
+    LEXER_ASSERT(string    != nullptr);
+    LEXER_ASSERT(out_token != nullptr);
 
     if (!next_token(out_token))
     {
@@ -2030,7 +2045,7 @@ bool lexer::check_token_string(const char * const string, token * out_token)
 
 bool lexer::check_token_type(const token::type type, const std::uint32_t subtype_flags, token * out_token)
 {
-    assert(out_token != nullptr);
+    LEXER_ASSERT(out_token != nullptr);
 
     token tok;
     if (!next_token(&tok))
@@ -2052,7 +2067,7 @@ bool lexer::check_token_type(const token::type type, const std::uint32_t subtype
 
 bool lexer::peek_token_string(const char * const string)
 {
-    assert(string != nullptr);
+    LEXER_ASSERT(string != nullptr);
 
     token tok;
     if (!next_token(&tok))
@@ -2074,7 +2089,7 @@ bool lexer::peek_token_string(const char * const string)
 
 bool lexer::peek_token_type(const token::type type, const std::uint32_t subtype_flags, token * out_token)
 {
-    assert(out_token != nullptr);
+    LEXER_ASSERT(out_token != nullptr);
 
     token tok;
     if (!next_token(&tok))
@@ -2097,7 +2112,7 @@ bool lexer::peek_token_type(const token::type type, const std::uint32_t subtype_
 
 bool lexer::skip_until_string(const char * const string)
 {
-    assert(string != nullptr);
+    LEXER_ASSERT(string != nullptr);
 
     token tok;
     while (next_token(&tok))
@@ -2161,7 +2176,7 @@ bool lexer::skip_whitespace(const bool current_line)
 {
     for (;;)
     {
-        assert(m_script_ptr <= m_end_ptr);
+        LEXER_ASSERT(m_script_ptr <= m_end_ptr);
         if (m_script_ptr == m_end_ptr)
         {
             return false;
@@ -2727,7 +2742,7 @@ bool lexer::internal_read_whitespace()
 
 bool lexer::internal_read_escape_character(char * out_char)
 {
-    assert(out_char != nullptr);
+    LEXER_ASSERT(out_char != nullptr);
 
     int c, val, i;
     ++m_script_ptr; // Step over the leading '\\'
@@ -2824,7 +2839,7 @@ bool lexer::internal_read_escape_character(char * out_char)
 
 bool lexer::internal_read_string(const int quote, token * out_token)
 {
-    assert(out_token != nullptr);
+    LEXER_ASSERT(out_token != nullptr);
 
     // Escape characters are interpreted.
     // Reads two strings with only a white space between them as one string.
@@ -2937,7 +2952,7 @@ bool lexer::internal_read_string(const int quote, token * out_token)
 
 bool lexer::internal_read_name_ident(token * out_token)
 {
-    assert(out_token != nullptr);
+    LEXER_ASSERT(out_token != nullptr);
 
     // Names can contain aA-zZ letters, numbers or underscore.
     auto valid_name_char = [](const int c) -> bool
@@ -2984,7 +2999,7 @@ bool lexer::internal_read_name_ident(token * out_token)
 
 bool lexer::internal_read_number(token * out_token)
 {
-    assert(out_token != nullptr);
+    LEXER_ASSERT(out_token != nullptr);
 
     char c1 = *m_script_ptr;
     char c2 = *(m_script_ptr + 1);
@@ -3239,8 +3254,8 @@ bool lexer::internal_read_number(token * out_token)
 
 bool lexer::internal_read_punctuation(token * out_token)
 {
-    assert(out_token      != nullptr);
-    assert(m_punctuations != nullptr);
+    LEXER_ASSERT(out_token      != nullptr);
+    LEXER_ASSERT(m_punctuations != nullptr);
 
     int l, n, i;
     for (n = m_punctuations_table[static_cast<unsigned>(*m_script_ptr)]; n >= 0; n = m_punctuations_next[n])
@@ -3281,7 +3296,7 @@ bool lexer::internal_read_punctuation(token * out_token)
 
 bool lexer::internal_check_string(const char * const string) const
 {
-    assert(string != nullptr);
+    LEXER_ASSERT(string != nullptr);
 
     for (std::size_t i = 0; string[i] != '\0'; ++i)
     {
@@ -3295,14 +3310,14 @@ bool lexer::internal_check_string(const char * const string) const
 
 std::string & lexer::ltrim_string(std::string * s)
 {
-    assert(s != nullptr);
+    LEXER_ASSERT(s != nullptr);
     const auto first_non_blank = s->find_first_not_of(" \t\r\n\v\f");
     return s->erase(0, first_non_blank);
 }
 
 std::string & lexer::rtrim_string(std::string * s)
 {
-    assert(s != nullptr);
+    LEXER_ASSERT(s != nullptr);
     const auto last_non_blank = s->find_last_not_of(" \t\r\n\v\f");
     return s->erase((last_non_blank != std::string::npos) ? last_non_blank + 1 : 0);
 }
@@ -3374,10 +3389,10 @@ void lexer::set_punctuation_tables(const punctuation_def * const punctuations,
                                    punct_table_index_type * punctuations_next,
                                    const std::size_t punctuations_size)
 {
-    assert(punctuations       != nullptr);
-    assert(punctuations_table != nullptr);
-    assert(punctuations_next  != nullptr);
-    assert(punctuations_size  != 0);
+    LEXER_ASSERT(punctuations       != nullptr);
+    LEXER_ASSERT(punctuations_table != nullptr);
+    LEXER_ASSERT(punctuations_next  != nullptr);
+    LEXER_ASSERT(punctuations_size  != 0);
 
     // -1 marks the unused entries.
     const punct_table_index_type fill_val = -1;
@@ -3466,7 +3481,7 @@ std::string lexer::get_punctuation_from_id(const punctuation_id id)
 
     if (id != punctuation_id::none && index < m_punctuations_size)
     {
-        assert(m_punctuations[index].id == id);
+        LEXER_ASSERT(m_punctuations[index].id == id);
         result = m_punctuations[index].str;
     }
     else
@@ -3479,7 +3494,7 @@ std::string lexer::get_punctuation_from_id(const punctuation_id id)
 
 lexer::punctuation_id lexer::get_punctuation_id_from_str(const char * const punctuation_string)
 {
-    assert(punctuation_string != nullptr);
+    LEXER_ASSERT(punctuation_string != nullptr);
 
     for (std::size_t i = 0; i < m_punctuations_size; ++i)
     {
