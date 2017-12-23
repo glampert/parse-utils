@@ -760,17 +760,17 @@ inline bool lexer::token::is_number() const noexcept
 
 inline bool lexer::token::is_integer() const noexcept
 {
-    return m_flags & flags::integer;
+    return (m_flags & flags::integer) != 0;
 }
 
 inline bool lexer::token::is_float() const noexcept
 {
-    return m_flags & flags::floating_point;
+    return (m_flags & flags::floating_point) != 0;
 }
 
 inline bool lexer::token::is_boolean() const noexcept
 {
-    return m_flags & flags::boolean;
+    return (m_flags & flags::boolean) != 0;
 }
 
 inline bool lexer::token::is_string() const noexcept
@@ -1344,7 +1344,7 @@ void lexer::token::update_cached_values() const noexcept
             new_u64_val = new_u64_val * 10 + (*p - '0');
             ++p;
         }
-        new_double_val = new_u64_val;
+        new_double_val = static_cast<double>(new_u64_val);
     }
     else if (m_flags & flags::octal) // Octal integer
     {
@@ -1354,7 +1354,7 @@ void lexer::token::update_cached_values() const noexcept
             new_u64_val = (new_u64_val << 3) + (*p - '0');
             ++p;
         }
-        new_double_val = new_u64_val;
+        new_double_val = static_cast<double>(new_u64_val);
     }
     else if (m_flags & flags::hexadecimal) // Hexadecimal integer
     {
@@ -1376,7 +1376,7 @@ void lexer::token::update_cached_values() const noexcept
             }
             ++p;
         }
-        new_double_val = new_u64_val;
+        new_double_val = static_cast<double>(new_u64_val);
     }
     else if (m_flags & flags::binary) // Binary integer number
     {
@@ -1386,7 +1386,7 @@ void lexer::token::update_cached_values() const noexcept
             new_u64_val = (new_u64_val << 1) + (*p - '0');
             ++p;
         }
-        new_double_val = new_u64_val;
+        new_double_val = static_cast<double>(new_u64_val);
     }
     else if (m_flags & flags::ip_address)
     {
@@ -1406,7 +1406,7 @@ void lexer::token::update_cached_values() const noexcept
         const std::uint64_t port_word = ip[4];
 
         new_u64_val    = (port_word << 32) | ip_word;
-        new_double_val = new_u64_val;
+        new_double_val = static_cast<double>(new_u64_val);
     }
     else if (m_flags & flags::boolean) // Boolean literal
     {
@@ -1414,7 +1414,7 @@ void lexer::token::update_cached_values() const noexcept
         {
             new_u64_val = 1;
         }
-        new_double_val = new_u64_val;
+        new_double_val = static_cast<double>(new_u64_val);
     }
 
     // Save the newly computed values and set the ready flag:
@@ -1884,7 +1884,7 @@ bool lexer::next_token(token * out_token)
     // Finally, check for punctuations:
     else if (!internal_read_punctuation(out_token))
     {
-        return error("unknown punctuation character \'" + std::string(1, c) + "\'");
+        return error("unknown punctuation character \'" + std::string(1u, static_cast<char>(c)) + "\'");
     }
 
     // Successfully read a token.
@@ -3337,9 +3337,9 @@ lexer::error_callbacks * lexer::m_error_callbacks = nullptr;
 
 void lexer::set_error_callbacks(error_callbacks * err_callbacks) noexcept
 {
-    struct default_error_callbacks : public lexer::error_callbacks
+    struct default_error_callbacks final : public lexer::error_callbacks
     {
-        void error(const std::string & message, const bool fatal) override
+        void error(const std::string & message, bool fatal) override
         {
             std::cerr << message << std::endl;
 
@@ -3417,7 +3417,7 @@ void lexer::set_punctuation_tables(const punctuation_def * const punctuations,
             const punctuation_def punct = punctuations[n];
             if (std::strlen(punct.str) < std::strlen(new_punct.str))
             {
-                punctuations_next[i] = n;
+                punctuations_next[i] = static_cast<punct_table_index_type>(n);
                 if (last_punct_id >= 0)
                 {
                     punctuations_next[last_punct_id] = static_cast<punct_table_index_type>(i);

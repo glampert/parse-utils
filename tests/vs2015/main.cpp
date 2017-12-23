@@ -1,21 +1,12 @@
-
-// ================================================================================================
-// -*- C++ -*-
-// File: test_misc.cpp
-// Author: Guilherme R. Lampert
-// Created on: 25/05/16
-// License: GNU GPL v3.
-// Brief: Testing some of the miscellaneous member methods of the preprocessor class.
-// ================================================================================================
-
-// Compiles with:
-//  c++ -std=c++11 -Wall -Wextra -Weffc++ -Wshadow -pedantic -I../../ test_misc.cpp -o pp_test_misc
+//
+// Basic preprocessor and lexer tests for Windows
+//
 
 #define LEXER_IMPLEMENTATION
-#include "lexer.hpp"
+#include "../../lexer.hpp"
 
 #define PREPROCESSOR_IMPLEMENTATION
-#include "preprocessor.hpp"
+#include "../../preprocessor.hpp"
 
 #include <iostream>
 #include <cassert>

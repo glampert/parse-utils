@@ -175,8 +175,8 @@ public:
     void undef_all(bool keep_built_ins = true);
 
     // Get the value of a NAME=VALUE macro as a lexer token. Fails for multi-token macros.
-    // Only returns true for the '#define FOO bar' kind of macros.
-    bool find_macro_token(const std::string & macro_name, lexer::token * out_token) const;
+    // Only returns true for the '#define FOO bar' kind of macros. Can optionally try to expand built-in macros.
+    bool find_macro_token(const std::string & macro_name, lexer::token * out_token, bool allow_built_ins = false) const;
 
     // Finds the list of tokens belonging to the body of a macro. Returns null if the macro is not defined.
     // The returned pointer belongs to the preprocessor, so you should not free it. It remains valid while
@@ -218,7 +218,7 @@ private:
     bool resolve_hash_directive();
     bool resolve_dollar_directive(std::string * out_text_buffer);
     bool try_open_include_file(const std::string & filename);
-    void string_append_token(const lexer::token & tok, std::string * out_str);
+    void string_append_token(const lexer::token & tok, std::string * out_str) const;
 
     void output_append_token_text(const lexer::token & tok, std::string * out_text_buffer,
                                   bool no_string_escape = false, bool no_whitespace = false);
@@ -256,13 +256,13 @@ private:
     struct macro_def final
     {
         // Indexes are into the m_macro_tokens vector.
-        std::uint32_t hashed_name           : 32;
-        std::uint32_t first_param_token     : 31;
-        std::uint32_t first_body_token      : 31;
-        std::uint32_t param_token_count     : 16;
-        std::uint32_t body_token_count      : 16;
-        bool          empty_func_like_macro : 1;
-        bool          va_args_macro         : 1;
+        std::uint32_t hashed_name;
+        std::uint16_t param_token_count;
+        std::uint16_t body_token_count;
+        std::uint64_t first_param_token     : 31;
+        std::uint64_t first_body_token      : 31;
+        std::uint64_t empty_func_like_macro : 1;
+        std::uint64_t va_args_macro         : 1;
     };
     #pragma pack(pop)
 
@@ -278,7 +278,7 @@ private:
     static constexpr std::uint32_t builtin_macro_va_args = 0x9EE0B9AA; // __VA_ARGS__
 
     void macro_define_builtins();
-    void macro_expand_builtin(const macro_def & macro, std::string * out_text_buffer, macro_parameter_pack * va_args);
+    bool macro_expand_builtin(const macro_def & macro, std::string * out_text_buffer, macro_parameter_pack * va_args);
     bool macro_is_builtin(const macro_def & macro) const noexcept;
     int  macro_find_index(std::uint32_t hashed_macro_name) const noexcept;
     void macro_define(const std::string & macro_name, macro_def * new_macro);
@@ -1069,7 +1069,7 @@ private:
                         }
                         else
                         {
-                            result.as_double = o->mathfunc->fptr(v2->value.as_int);
+                            result.as_double = o->mathfunc->fptr(static_cast<double>(v2->value.as_int));
                         }
                         result.type = eval_type_double;
                     }
@@ -1336,11 +1336,11 @@ private:
         //
         if (lhs.type == eval_type_double && rhs.type == eval_type_int)
         {
-            return apply_op_double(out_result, lhs.as_double, rhs.as_int, op);
+            return apply_op_double(out_result, lhs.as_double, static_cast<double>(rhs.as_int), op);
         }
         if (lhs.type == eval_type_int && rhs.type == eval_type_double)
         {
-            return apply_op_double(out_result, lhs.as_int, rhs.as_double, op);
+            return apply_op_double(out_result, static_cast<double>(lhs.as_int), rhs.as_double, op);
         }
 
         // Not supposed to be reached.
@@ -1507,7 +1507,7 @@ public:
     {
         if (params_provided != nullptr)
         {
-            m_tokens_available    = params_provided->size();
+            m_tokens_available    = static_cast<std::uint32_t>(params_provided->size());
             m_macro_token_expands = params_provided->data();
 
             if (va_args_macro)
@@ -2346,7 +2346,8 @@ bool preprocessor::define(const std::string & define_string, const bool allow_re
                                      lexer::flags::no_string_concat);
 
     // Tokenize the string:
-    if (!lex.init_from_memory(define_string.c_str(), define_string.length(), "(define-string)", lex_flags))
+    if (!lex.init_from_memory(define_string.c_str(), static_cast<std::uint32_t>(define_string.length()),
+                              "(define-string)", lex_flags))
     {
         return false;
     }
@@ -2401,7 +2402,7 @@ void preprocessor::undef_all(const bool keep_built_ins)
     }
 }
 
-bool preprocessor::find_macro_token(const std::string & macro_name, lexer::token * out_token) const
+bool preprocessor::find_macro_token(const std::string & macro_name, lexer::token * out_token, const bool allow_built_ins) const
 {
     const auto hashed_name = hash_string(macro_name.c_str(), macro_name.length());
     const int  macro_index = macro_find_index(hashed_name);
@@ -2415,6 +2416,19 @@ bool preprocessor::find_macro_token(const std::string & macro_name, lexer::token
     const macro_def macro = m_macros[macro_index];
     if (macro.param_token_count != 0 || macro.body_token_count != 1)
     {
+        if (allow_built_ins && macro_is_builtin(macro))
+        {
+            std::string text;
+            auto* mut_this = const_cast<preprocessor*>(this);
+            // Have to cast away const because the built-in macro expansion
+            // might throw an error and the error handler is not const.
+            if (mut_this->macro_expand_builtin(macro, &text, nullptr))
+            {
+                out_token->set_string(std::move(text));
+                return true;
+            }
+        }
+
         out_token->clear();
         return false; // Only simple '#define FOO bar' macros are allowed.
     }
@@ -2505,14 +2519,13 @@ bool preprocessor::macro_is_builtin(const macro_def & macro) const noexcept
     } // switch (macro.hashed_name)
 }
 
-void preprocessor::macro_expand_builtin(const macro_def & macro, std::string * out_text_buffer, macro_parameter_pack * va_args)
+bool preprocessor::macro_expand_builtin(const macro_def & macro, std::string * out_text_buffer, macro_parameter_pack * va_args)
 {
     PREPROCESSOR_ASSERT(out_text_buffer != nullptr);
 
     if (m_current_script == nullptr)
     {
-        error("no script loaded!");
-        return;
+        return error("no script loaded!");
     }
 
     // Output as quoted strings, except for the __LINE__ number and varargs.
@@ -2536,7 +2549,14 @@ void preprocessor::macro_expand_builtin(const macro_def & macro, std::string * o
             // Expected ctime output format:
             // Www Mmm dd hh:mm:ss yyyy
             const std::time_t tval = std::time(nullptr);
-            const char * time_str  = std::ctime(&tval);
+
+            #ifdef _MSC_VER
+                char timebuff[128] = {'\0'};
+                ctime_s(timebuff, sizeof(timebuff), &tval);
+                const char * time_str = timebuff;
+            #else // _MSC_VER
+                const char * time_str = std::ctime(&tval);
+            #endif // _MSC_VER
 
             if (time_str != nullptr && std::strlen(time_str) >= 24)
             {
@@ -2556,7 +2576,14 @@ void preprocessor::macro_expand_builtin(const macro_def & macro, std::string * o
             // Expected ctime output format:
             // Www Mmm dd hh:mm:ss yyyy
             const std::time_t tval = std::time(nullptr);
-            const char * time_str  = std::ctime(&tval);
+
+            #ifdef _MSC_VER
+                char timebuff[128] = {'\0'};
+                ctime_s(timebuff, sizeof(timebuff), &tval);
+                const char * time_str = timebuff;
+            #else // _MSC_VER
+                const char * time_str = std::ctime(&tval);
+            #endif // _MSC_VER
 
             if (time_str != nullptr && std::strlen(time_str) >= 24)
             {
@@ -2572,8 +2599,7 @@ void preprocessor::macro_expand_builtin(const macro_def & macro, std::string * o
         {
             if (va_args == nullptr)
             {
-                error("\'__VA_ARGS__\' macro expansion failed!");
-                break;
+                return error("\'__VA_ARGS__\' macro expansion failed!");
             }
 
             lexer::token tok;
@@ -2591,10 +2617,11 @@ void preprocessor::macro_expand_builtin(const macro_def & macro, std::string * o
         }
     default :
         {
-            error("undefined built-in macro expansion!");
-            break;
+            return error("undefined built-in macro expansion!");
         }
     } // switch (macro.hashed_name)
+
+    return true;
 }
 
 void preprocessor::macro_define_builtins()
@@ -2905,7 +2932,7 @@ bool preprocessor::expand_macro_and_append(const int macro_index, std::string * 
             }
 
             // Check for a merge op ahead to avoid emitting a whitespace between tokens.
-            if (b != (macro.body_token_count - 1))
+            if (b != (macro.body_token_count - 1u))
             {
                 const lexer::token & next_body_token = m_macro_tokens[b + macro.first_body_token + 1];
                 if (lexer::is_punctuation_token(next_body_token, lexer::punctuation_id::preprocessor_merge)) // ##
@@ -3068,7 +3095,7 @@ int preprocessor::expand_recursive_macro_and_append(const int macro_index, const
         ((params_provided != nullptr && macro.param_token_count != 0) ?
                   &m_macro_tokens[macro.first_param_token] : nullptr),
         macro.param_token_count,
-        macro.va_args_macro
+        bool(macro.va_args_macro)
     };
 
     if (!expand_macro_and_append(other_macro_index, out_text_buffer, &param_pack, &parent_pack))
@@ -3099,7 +3126,7 @@ void preprocessor::output_append_token_text(const lexer::token & tok, std::strin
     }
 
     m_prev_token_type  = tok.get_type();
-    m_output_line_len += tok.get_length();
+    m_output_line_len += static_cast<std::uint32_t>(tok.get_length());
 
     // We break lines once they get long enough. But only break if at a
     // semicolon, so m_output_max_line_len is not a hard constraint.
@@ -3111,7 +3138,7 @@ void preprocessor::output_append_token_text(const lexer::token & tok, std::strin
     }
 }
 
-void preprocessor::string_append_token(const lexer::token & tok, std::string * out_str)
+void preprocessor::string_append_token(const lexer::token & tok, std::string * out_str) const
 {
     PREPROCESSOR_ASSERT(out_str != nullptr);
 
@@ -3271,11 +3298,11 @@ bool preprocessor::evaluate_preproc_conditional(bool * out_result)
 
     if (expr_result.type == expr_evaluator::eval_type_int)
     {
-        *out_result = static_cast<bool>(expr_result.as_int);
+        *out_result = (expr_result.as_int != 0);
     }
     else
     {
-        *out_result = static_cast<bool>(expr_result.as_double);
+        *out_result = (expr_result.as_double != 0.0);
     }
     return true;
 }
@@ -3565,7 +3592,7 @@ bool preprocessor::resolve_line_directive()
         return error("#line directive must be followed by a non-negative line number!");
     }
 
-    m_current_script->set_line_number(tok.as_uint64());
+    m_current_script->set_line_number(static_cast<std::uint32_t>(tok.as_uint64()));
     return true;
 }
 
@@ -3850,7 +3877,8 @@ bool preprocessor::eval(const std::string & expression, std::int64_t * out_i_res
     }
 
     lexer lex;
-    if (!lex.init_from_memory(expression.c_str(), expression.length(), "(eval-string)", lex_flags))
+    if (!lex.init_from_memory(expression.c_str(), static_cast<std::uint32_t>(expression.length()),
+                              "(eval-string)", lex_flags))
     {
         if (out_i_result != nullptr) { *out_i_result = 0; }
         if (out_f_result != nullptr) { *out_f_result = 0; }
