@@ -424,6 +424,44 @@ static void lex_test_high_bytes()
     }
 }
 
+static void lex_test_unknown_punctuation()
+{
+    #if LEX_TESTS_VERBOSE
+    std::cout << "\nUnknown punctuation...\n";
+    #endif // LEX_TESTS_VERBOSE
+
+    constexpr std::uint32_t flags = lexer::flags::allow_unknown_punctuation;
+
+    // Each character no token starts with is a token of its own, even inside a word:
+    assert((lex_string("QSL1@:\n`x` \xC3\xA9", flags) == string_list{
+        "QSL1@1", "@@1", ":@1", "`@2", "x@2", "`@2", "\xC3@2", "\xA9@2" }));
+
+    // It is punctuation with no known id, and the lexer resumes right after it:
+    {
+        const char script[] = "a@->b";
+        lexer lex{ script, sizeof(script) - 1, "(test)", flags };
+        lexer::token tok;
+        assert(lex.next_token(&tok) && tok == "a");
+        assert(lex.next_token(&tok) && tok == "@" && tok.is_punctuation());
+        assert(static_cast<lexer::punctuation_id>(tok.get_flags()) == lexer::punctuation_id::none);
+        assert(lex.get_script_offset() == 2);
+        assert(lex.next_token(&tok) && tok == "->");
+        assert(static_cast<lexer::punctuation_id>(tok.get_flags()) == lexer::punctuation_id::arrow);
+        assert(lex.next_token(&tok) && tok == "b");
+        assert(!lex.next_token(&tok) && lex.get_error_count() == 0);
+    }
+
+    // Without the flag it is an error:
+    {
+        const char script[] = "a @";
+        lexer lex{ script, sizeof(script) - 1, "(test)", lexer::flags::no_errors | lexer::flags::no_fatal_errors };
+        lexer::token tok;
+        assert(lex.next_token(&tok) && tok == "a");
+        assert(!lex.next_token(&tok));
+        assert(lex.get_error_count() == 1);
+    }
+}
+
 static void lex_test_hex_escapes()
 {
     #if LEX_TESTS_VERBOSE
@@ -525,6 +563,7 @@ int main()
     lex_test_semicolon_comments();
     lex_test_block_comments();
     lex_test_high_bytes();
+    lex_test_unknown_punctuation();
     lex_test_hex_escapes();
     lex_test_error_callbacks();
 

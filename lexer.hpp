@@ -74,6 +74,9 @@
 // The semicolon_comments flag adds assembly/INI-style ';' line comments.
 // A UTF-8 byte order mark at the start of the text is skipped too; any
 // other byte above 0x7F is only valid inside comments and strings.
+// The allow_unknown_punctuation flag lets such bytes through, along with
+// the ASCII characters no token starts with, such as '@': each becomes a
+// one-character punctuation token whose id is punctuation_id::none.
 //
 // License:
 // To comply with the license used by DOOM 3 and id Tech 4, this source file
@@ -442,6 +445,7 @@ public:
         static constexpr std::uint32_t allow_backslash_string_concat = 1 << 10; // Allow multiple strings separated by '\' to be concatenated.
         static constexpr std::uint32_t only_strings                  = 1 << 11; // Scan as whitespace delimited strings (quoted strings keep quotes).
         static constexpr std::uint32_t semicolon_comments            = 1 << 12; // ';' starts a comment that runs to the end of the line, as in assembly and INI files.
+        static constexpr std::uint32_t allow_unknown_punctuation     = 1 << 13; // A character no token starts with, e.g. '@', is a punctuation of its own, with punctuation_id::none.
     }; // flags
 
     //
@@ -1922,7 +1926,16 @@ bool lexer::next_token(token * out_token)
     // Finally, check for punctuations:
     else if (!internal_read_punctuation(out_token))
     {
-        return error("unknown punctuation character \'" + std::string(1u, static_cast<char>(c)) + "\'");
+        if (!(m_flags & flags::allow_unknown_punctuation))
+        {
+            return error("unknown punctuation character \'" + std::string(1u, static_cast<char>(c)) + "\'");
+        }
+
+        // The character stands alone, like an "other" preprocessing token in C.
+        out_token->append(static_cast<char>(c));
+        out_token->set_type(token::type::punctuation);
+        out_token->set_flags(static_cast<std::uint32_t>(punctuation_id::none));
+        ++m_script_ptr;
     }
 
     // Successfully read a token.
