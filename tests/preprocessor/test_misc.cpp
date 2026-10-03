@@ -142,4 +142,78 @@ int main()
         assert(pp.find_macro_value("THREE", &num) && num == 3);
         assert(pp.find_macro_value("FOUR",  &num) && num == 4);
     }
+
+    // Errors in an eval() expression reach the error callbacks, even with no script loaded:
+    {
+        struct capture_errors final : public lexer::error_callbacks
+        {
+            std::string filename;
+            std::string message;
+
+            void error(const std::string &, bool) override { }
+            void warning(const std::string &) override { }
+
+            void error_at(const std::string & file, std::uint32_t, const std::string & msg, bool) override
+            {
+                filename = file;
+                message  = msg;
+            }
+        } errors;
+
+        lexer::set_error_callbacks(&errors);
+        {
+            preprocessor eval_pp;
+            std::int64_t iresult = 0;
+            assert(eval_pp.eval("1 +", &iresult, nullptr, false, false, false) == false);
+            assert(errors.filename == "(eval-string)");
+            assert(!errors.message.empty());
+        }
+        lexer::set_error_callbacks(nullptr);
+    }
+
+    // Indirect recursion is an error rather than a stack overflow...
+    {
+        const char scr[] = "#define A B\n"
+                           "#define B A\n"
+                           "A\n";
+        preprocessor rec_pp;
+        rec_pp.init_from_memory(scr, sizeof(scr) - 1, "recursion.txt",
+                                preprocessor::flags::no_errors | preprocessor::flags::no_fatal_errors);
+
+        std::string result;
+        assert(rec_pp.preprocess(&result) == false);
+    }
+
+    // ...while a macro can still appear in the arguments of its own expansion:
+    {
+        const char scr[] = "#define F(x) x\n"
+                           "#define G(y) F(y)\n"
+                           "F(G(1))\n";
+        preprocessor nested_pp;
+        nested_pp.init_from_memory(scr, sizeof(scr) - 1, "nested.txt");
+
+        std::string result;
+        assert(nested_pp.preprocess(&result) == true);
+        assert(result.find('1') != std::string::npos);
+    }
+
+    // Macros are told apart by a 64-bit hash of their names:
+    {
+        static_assert(preprocessor::hash_string("__FILE__") != preprocessor::hash_string("__LINE__"));
+
+        preprocessor names_pp;
+        for (int i = 0; i < 1000; ++i)
+        {
+            assert(names_pp.define("MACRO_" + std::to_string(i), std::int64_t{ i }, false));
+        }
+        for (int i = 0; i < 1000; ++i)
+        {
+            std::int64_t value = -1;
+            assert(names_pp.find_macro_value("MACRO_" + std::to_string(i), &value) && value == i);
+        }
+
+        names_pp.undef("MACRO_500");
+        assert(!names_pp.is_defined("MACRO_500"));
+        assert(names_pp.is_defined("MACRO_501"));
+    }
 }

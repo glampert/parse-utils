@@ -24,6 +24,7 @@
 #ifndef PREPROCESSOR_NO_STD_INCLUDES
     #include <cstdint>
     #include <string>
+    #include <string_view>
     #include <vector>
 #endif // PREPROCESSOR_NO_STD_INCLUDES
 
@@ -34,6 +35,24 @@
     #endif // PREPROCESSOR_NO_STD_INCLUDES
     #define PREPROCESSOR_ASSERT assert
 #endif // PREPROCESSOR_ASSERT
+
+namespace preprocessor_detail
+{
+
+// 64-bit FNV-1a, the hash that identifies macros by name. Defined ahead of the
+// preprocessor class so that the class can compute its constants with it.
+constexpr std::uint64_t hash_fnv1a_64(const std::string_view str) noexcept
+{
+    std::uint64_t h = 0xCBF29CE484222325ull; // FNV offset basis
+    for (const char c : str)
+    {
+        h ^= static_cast<unsigned char>(c);
+        h *= 0x00000100000001B3ull;          // FNV prime
+    }
+    return h;
+}
+
+} // namespace preprocessor_detail {}
 
 //
 // (Mostly) compatible C and C++ source code preprocessor.
@@ -124,7 +143,14 @@ public:
     void warning(const std::string & message);
 
     // Hash function used internally to hash macro names. Publicly visible.
-    static std::uint32_t hash_string(const char * str, std::size_t count);
+    static constexpr std::uint64_t hash_string(const char * str, std::size_t count) noexcept
+    {
+        return preprocessor_detail::hash_fnv1a_64(std::string_view{ str, count });
+    }
+    static constexpr std::uint64_t hash_string(const std::string_view str) noexcept
+    {
+        return preprocessor_detail::hash_fnv1a_64(str);
+    }
 
     //
     // Getters/setters:
@@ -252,11 +278,10 @@ private:
     // Preprocessor macros (#define/#undef):
     //
 
-    #pragma pack(push, 1)
     struct macro_def final
     {
         // Indexes are into the m_macro_tokens vector.
-        std::uint32_t hashed_name;
+        std::uint64_t hashed_name;
         std::uint16_t param_token_count;
         std::uint16_t body_token_count;
         std::uint64_t first_param_token     : 31;
@@ -264,23 +289,22 @@ private:
         std::uint64_t empty_func_like_macro : 1;
         std::uint64_t va_args_macro         : 1;
     };
-    #pragma pack(pop)
 
-    // We don't need more than the above specified bit widths, so packing the structure
-    // helps save memory and allows fitting more macro_defs into each cache line.
-    static_assert(sizeof(macro_def) == 16, "Wrong size for macro_def struct!");
+    // We don't need more than the above specified bit widths, so the structure
+    // stays small and more macro_defs fit into each cache line.
+    static_assert(sizeof(macro_def) == 24, "Wrong size for macro_def struct!");
 
-    // Constants generated with hash_string() using the corresponding text string.
-    static constexpr std::uint32_t builtin_macro_file    = 0x07215FFC; // __FILE__
-    static constexpr std::uint32_t builtin_macro_line    = 0x5DB1B324; // __LINE__
-    static constexpr std::uint32_t builtin_macro_date    = 0x70D6DAE9; // __DATE__
-    static constexpr std::uint32_t builtin_macro_time    = 0xC32DC18B; // __TIME__
-    static constexpr std::uint32_t builtin_macro_va_args = 0x9EE0B9AA; // __VA_ARGS__
+    // Hashes of the built-in macro names.
+    static constexpr std::uint64_t builtin_macro_file    = preprocessor_detail::hash_fnv1a_64("__FILE__");
+    static constexpr std::uint64_t builtin_macro_line    = preprocessor_detail::hash_fnv1a_64("__LINE__");
+    static constexpr std::uint64_t builtin_macro_date    = preprocessor_detail::hash_fnv1a_64("__DATE__");
+    static constexpr std::uint64_t builtin_macro_time    = preprocessor_detail::hash_fnv1a_64("__TIME__");
+    static constexpr std::uint64_t builtin_macro_va_args = preprocessor_detail::hash_fnv1a_64("__VA_ARGS__");
 
     void macro_define_builtins();
     bool macro_expand_builtin(const macro_def & macro, std::string * out_text_buffer, macro_parameter_pack * va_args);
     bool macro_is_builtin(const macro_def & macro) const noexcept;
-    int  macro_find_index(std::uint32_t hashed_macro_name) const noexcept;
+    int  macro_find_index(std::uint64_t hashed_macro_name) const noexcept;
     void macro_define(const std::string & macro_name, macro_def * new_macro);
     void macro_undefine(const std::string & macro_name);
     void macro_clear_tokens(const macro_def & macro);
@@ -323,6 +347,7 @@ private:
     std::vector<lexer *>         m_include_stack;                  // Stack top is the previous script before entering an #include.
     std::vector<lexer *>         m_dynamic_scripts;                // Stuff allocated by the preprocessor (#includes, init_from_file(), etc).
     std::vector<std::string>     m_search_paths;                   // User-provided search paths for #includes enclosed in < >.
+    std::vector<int>             m_expanding_macros;               // Indexes of the macros whose bodies are being expanded, outermost first.
 };
 
 // ================== End of header file ==================
@@ -338,6 +363,7 @@ private:
 #ifdef PREPROCESSOR_IMPLEMENTATION
 
 #ifndef PREPROCESSOR_NO_STD_INCLUDES
+    #include <algorithm>
     #include <cmath>
     #include <ctime>
     #include <cstdio>
@@ -2237,30 +2263,6 @@ bool preprocessor::resolve_dollar_directive(std::string * out_text_buffer)
     return true;
 }
 
-std::uint32_t preprocessor::hash_string(const char * const str, const std::size_t count)
-{
-    PREPROCESSOR_ASSERT(str != nullptr);
-
-    //
-    // Simple and fast One-at-a-Time (OAT) hash algorithm:
-    //  http://en.wikipedia.org/wiki/Jenkins_hash_function
-    //
-    // String not required to be null-terminated.
-    //
-    std::uint32_t h = 0;
-    for (std::size_t i = 0; i < count; ++i)
-    {
-        h += str[i];
-        h += (h << 10);
-        h ^= (h >> 6);
-    }
-
-    h += (h << 3);
-    h ^= (h >> 11);
-    h += (h << 15);
-    return h;
-}
-
 bool preprocessor::define(const std::string & macro_name, lexer::token value, const bool allow_redefinition)
 {
     const auto hashed_name = hash_string(macro_name.c_str(), macro_name.length());
@@ -2644,7 +2646,7 @@ void preprocessor::macro_define_builtins()
     m_macros.push_back(builtin);
 }
 
-int preprocessor::macro_find_index(const std::uint32_t hashed_macro_name) const noexcept
+int preprocessor::macro_find_index(const std::uint64_t hashed_macro_name) const noexcept
 {
     const int macro_count = static_cast<int>(m_macros.size());
 
@@ -2723,6 +2725,34 @@ void preprocessor::macro_clear_tokens(const macro_def & macro)
         m_macro_tokens[i + macro.first_body_token] = empty_token;
     }
 }
+
+namespace preprocessor_detail
+{
+
+// Keeps a macro on the stack of macros being expanded while its body is, so that
+// a body which leads back to it is caught instead of recursing without end.
+class macro_expansion_scope final
+{
+public:
+    macro_expansion_scope(std::vector<int> & expanding_macros, const int macro_index)
+        : m_expanding_macros{ expanding_macros }
+    {
+        m_expanding_macros.push_back(macro_index);
+    }
+
+    ~macro_expansion_scope()
+    {
+        m_expanding_macros.pop_back();
+    }
+
+    macro_expansion_scope(const macro_expansion_scope &) = delete;
+    macro_expansion_scope & operator = (const macro_expansion_scope &) = delete;
+
+private:
+    std::vector<int> & m_expanding_macros;
+};
+
+} // namespace preprocessor_detail {}
 
 bool preprocessor::expand_macro_and_append(const int macro_index, std::string * out_text_buffer,
                                            macro_parameter_pack * param_pack, macro_parameter_pack * parent_pack)
@@ -2896,6 +2926,9 @@ bool preprocessor::expand_macro_and_append(const int macro_index, std::string * 
         bool next_is_merge            = false;
         bool prev_token_was_stringize = false;
 
+        // Only now, after the arguments: they may use this macro themselves.
+        const preprocessor_detail::macro_expansion_scope expansion_scope{ m_expanding_macros, macro_index };
+
         out_text_buffer->push_back(' ');
         for (std::uint32_t b = 0; b < macro.body_token_count; ++b)
         {
@@ -3041,6 +3074,8 @@ bool preprocessor::expand_macro_and_append(const int macro_index, std::string * 
                 }
             }
 
+            const preprocessor_detail::macro_expansion_scope expansion_scope{ m_expanding_macros, macro_index };
+
             out_text_buffer->push_back(' ');
             for (std::uint32_t i = 0; i < macro.body_token_count; ++i)
             {
@@ -3084,6 +3119,14 @@ int preprocessor::expand_recursive_macro_and_append(const int macro_index, const
 
     const macro_def macro = m_macros[macro_index];
     const std::uint32_t next_token = token_index + 1;
+
+    // So would leading back to a macro whose body is already being expanded (A -> B -> A).
+    if (std::find(m_expanding_macros.begin(), m_expanding_macros.end(), other_macro_index) != m_expanding_macros.end())
+    {
+        error("recursive expansion of macro \'" +
+              m_macro_tokens[token_index + macro.first_body_token].as_string() + "\'!");
+        return -1;
+    }
 
     macro_parameter_pack param_pack{
         &m_macro_tokens[next_token + macro.first_body_token],
@@ -3884,6 +3927,16 @@ bool preprocessor::eval(const std::string & expression, std::int64_t * out_i_res
         if (out_f_result != nullptr) { *out_f_result = 0; }
         return false;
     }
+
+    // The expression is the current script while it is evaluated, so its errors are
+    // reported through it: preprocessor::error() drops them when no script is loaded.
+    struct script_restorer final
+    {
+        lexer *& script;
+        lexer * const saved;
+        ~script_restorer() { script = saved; }
+    } restore_script{ m_current_script, m_current_script };
+    m_current_script = &lex;
 
     expr_evaluator evaluator{ this };
     expr_evaluator::eval_value expr_result;
