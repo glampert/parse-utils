@@ -70,6 +70,11 @@
 // as IP addresses in the form: 172.16.254.1:8080, where the port num
 // and the ':' is optional.
 //
+// C-style (/* */) and C++-style (//) comments are skipped as whitespace.
+// The semicolon_comments flag adds assembly/INI-style ';' line comments.
+// A UTF-8 byte order mark at the start of the text is skipped too; any
+// other byte above 0x7F is only valid inside comments and strings.
+//
 // License:
 // To comply with the license used by DOOM 3 and id Tech 4, this source file
 // is released under the terms of the GNU General Public License version 3.
@@ -382,8 +387,18 @@ public:
     class error_callbacks
     {
     public:
+        // Receive the complete message, formatted as "filename(line): error: message".
         virtual void error(const std::string & message, bool fatal) = 0;
         virtual void warning(const std::string & message) = 0;
+
+        // Receive the parts of the message, for users that format their own diagnostics.
+        // The lexer calls these. The defaults build the formatted message from the parts
+        // and forward it to error()/warning(), so overriding just those two is enough.
+        virtual void error_at(const std::string & filename, std::uint32_t line_num,
+                              const std::string & message, bool fatal);
+        virtual void warning_at(const std::string & filename, std::uint32_t line_num,
+                                const std::string & message);
+
         virtual ~error_callbacks() = default;
     }; // error_callbacks
 
@@ -426,6 +441,7 @@ public:
         static constexpr std::uint32_t allow_multi_char_literals     = 1 << 9;  // Allow multi-character literals.
         static constexpr std::uint32_t allow_backslash_string_concat = 1 << 10; // Allow multiple strings separated by '\' to be concatenated.
         static constexpr std::uint32_t only_strings                  = 1 << 11; // Scan as whitespace delimited strings (quoted strings keep quotes).
+        static constexpr std::uint32_t semicolon_comments            = 1 << 12; // ';' starts a comment that runs to the end of the line, as in assembly and INI files.
     }; // flags
 
     //
@@ -645,7 +661,16 @@ public:
 
 private:
 
+    // Result of internal_skip_comment().
+    enum class comment_skip : std::uint8_t
+    {
+        none,         // No comment starts at the current position.
+        skipped,      // Skipped one comment.
+        end_of_script // The script ended inside the comment.
+    };
+
     // Internal helpers:
+    comment_skip internal_skip_comment();
     bool internal_read_whitespace();
     bool internal_read_escape_character(char * out_char);
     bool internal_read_string(int quote, token * out_token);
@@ -1238,6 +1263,7 @@ inline bool lexer::is_punctuation_token(const token & tok, const punctuation_id 
 #ifdef LEXER_IMPLEMENTATION
 
 #ifndef LEXER_NO_STD_INCLUDES
+    #include <bit>
     #include <cstdio>
     #include <cstring>
     #include <iostream>
@@ -1262,17 +1288,17 @@ void lexer::token::update_cached_values() const noexcept
             if (m_flags & flags::infinite) // 1.#INF
             {
                 const std::uint32_t inf = 0x7F800000;
-                new_double_val = static_cast<double>(*reinterpret_cast<const float *>(&inf));
+                new_double_val = static_cast<double>(std::bit_cast<float>(inf));
             }
             else if (m_flags & flags::indefinite) // 1.#IND
             {
                 const std::uint32_t ind = 0xFFC00000;
-                new_double_val = static_cast<double>(*reinterpret_cast<const float *>(&ind));
+                new_double_val = static_cast<double>(std::bit_cast<float>(ind));
             }
             else if (m_flags & flags::nan) // 1.#NAN
             {
                 const std::uint32_t nan = 0x7FC00000;
-                new_double_val = static_cast<double>(*reinterpret_cast<const float *>(&nan));
+                new_double_val = static_cast<double>(std::bit_cast<float>(nan));
             }
         }
         else
@@ -1583,6 +1609,23 @@ lexer::~lexer()
     }
 }
 
+namespace lexer_detail
+{
+
+// Length of the UTF-8 byte order mark that some editors write at the start of a text
+// file, or zero if there is none. The mark is not part of the script, so lexing starts
+// after it rather than reporting it as unknown characters.
+static std::uint32_t utf8_bom_length(const char * const text, const std::uint32_t length) noexcept
+{
+    const bool has_bom = (length >= 3 &&
+                          static_cast<unsigned char>(text[0]) == 0xEF &&
+                          static_cast<unsigned char>(text[1]) == 0xBB &&
+                          static_cast<unsigned char>(text[2]) == 0xBF);
+    return (has_bom ? 3 : 0);
+}
+
+} // namespace lexer_detail {}
+
 bool lexer::init_from_file(std::string filename, const std::uint32_t flags, const bool silent)
 {
     if (filename.empty())
@@ -1606,8 +1649,8 @@ bool lexer::init_from_file(std::string filename, const std::uint32_t flags, cons
     m_filename        = std::move(filename);
     m_buffer_head_ptr = file_contents;
     m_script_length   = file_length;
-    m_script_ptr      = m_buffer_head_ptr;
-    m_last_script_ptr = m_buffer_head_ptr;
+    m_script_ptr      = m_buffer_head_ptr + lexer_detail::utf8_bom_length(m_buffer_head_ptr, file_length);
+    m_last_script_ptr = m_script_ptr;
     m_end_ptr         = &m_buffer_head_ptr[file_length];
     m_line_num        = 1;
     m_last_line_num   = 1;
@@ -1637,8 +1680,8 @@ bool lexer::init_from_memory(const char * ptr, const std::uint32_t length, std::
     // Note that in this case, we DO NOT take ownership of the input buffer!
     m_buffer_head_ptr = ptr;
     m_script_length   = length;
-    m_script_ptr      = m_buffer_head_ptr;
-    m_last_script_ptr = m_buffer_head_ptr;
+    m_script_ptr      = m_buffer_head_ptr + lexer_detail::utf8_bom_length(m_buffer_head_ptr, length);
+    m_last_script_ptr = m_script_ptr;
     m_end_ptr         = &m_buffer_head_ptr[length];
     m_line_num        = starting_line;
     m_last_line_num   = starting_line;
@@ -1660,8 +1703,8 @@ void lexer::clear() noexcept
 
 void lexer::reset() noexcept
 {
-    m_script_ptr           = m_buffer_head_ptr;
-    m_last_script_ptr      = m_buffer_head_ptr;
+    m_script_ptr           = m_buffer_head_ptr + lexer_detail::utf8_bom_length(m_buffer_head_ptr, m_script_length);
+    m_last_script_ptr      = m_script_ptr;
     m_whitespace_start_ptr = nullptr;
     m_whitespace_end_ptr   = nullptr;
     m_last_line_num        = 1;
@@ -1704,16 +1747,8 @@ bool lexer::error(const std::string & message)
         return false;
     }
 
-    // When using the ANSI color codes the "error" tag prints in red.
-#ifdef LEXER_ERROR_WARN_USE_ANSI_COLOR_CODES
-    const std::string err_tag = "\033[31;1m error: \033[0;1m";
-#else // !LEXER_ERROR_WARN_USE_ANSI_COLOR_CODES
-    const std::string err_tag = " error: ";
-#endif // LEXER_ERROR_WARN_USE_ANSI_COLOR_CODES
-
-    const std::string error_str = get_filename() + "(" + std::to_string(m_last_line_num) + "):" + err_tag + message;
     const bool is_fatal_error = !(m_flags & flags::no_fatal_errors);
-    m_error_callbacks->error(error_str, is_fatal_error);
+    m_error_callbacks->error_at(get_filename(), m_last_line_num, message, is_fatal_error);
 
     // Always returns false so we can write 'return error("foobar");' on methods returning boolean.
     return false;
@@ -1727,15 +1762,7 @@ void lexer::warning(const std::string & message)
         return;
     }
 
-    // When using the ANSI color codes the "warning" tag prints in magenta.
-#ifdef LEXER_ERROR_WARN_USE_ANSI_COLOR_CODES
-    const std::string warn_tag = "\033[35;1m warning: \033[0;1m";
-#else // !LEXER_ERROR_WARN_USE_ANSI_COLOR_CODES
-    const std::string warn_tag = " warning: ";
-#endif // LEXER_ERROR_WARN_USE_ANSI_COLOR_CODES
-
-    const std::string warn_str = get_filename() + "(" + std::to_string(m_last_line_num) + "):" + warn_tag + message;
-    m_error_callbacks->warning(warn_str);
+    m_error_callbacks->warning_at(get_filename(), m_last_line_num, message);
 }
 
 bool lexer::load_text_file(const std::string & filename, char ** out_file_contents, std::uint32_t * out_file_length)
@@ -1816,6 +1843,17 @@ bool lexer::next_token(token * out_token)
     out_token->clear();                                         // Ensure it is cleared
     out_token->set_line_number(m_line_num);                     // Line the token is on
     out_token->set_lines_crossed(m_line_num - m_last_line_num); // # of lines crossed before token
+
+    // Errors raised while reading the token report the line it is on. Once it has been
+    // read, m_last_line_num goes back to the line before it, which is what error() reports
+    // after a token was read ahead and put back, e.g. the line of a preprocessor directive.
+    struct line_restorer final
+    {
+        std::uint32_t & line;
+        const std::uint32_t saved;
+        ~line_restorer() { line = saved; }
+    } restore_last_line{ m_last_line_num, m_last_line_num };
+    m_last_line_num = m_line_num;
 
     int c = *m_script_ptr;
 
@@ -2182,8 +2220,8 @@ bool lexer::skip_whitespace(const bool current_line)
             return false;
         }
 
-        // Skip whitespace:
-        while (*m_script_ptr <= ' ')
+        // Skip whitespace. Bytes above 0x7F are not whitespace, whatever the signedness of char.
+        while (static_cast<unsigned char>(*m_script_ptr) <= ' ')
         {
             if (m_script_ptr == m_end_ptr)
             {
@@ -2205,75 +2243,15 @@ bool lexer::skip_whitespace(const bool current_line)
             ++m_script_ptr;
         }
 
-        // Skip comments:
-        if (*m_script_ptr == '/')
+        // Skip comments. A line comment leaves its newline to the loop above,
+        // which returns there if only skipping the current line.
+        switch (internal_skip_comment())
         {
-            // C++-style comments:
-            if (*(m_script_ptr + 1) == '/')
-            {
-                ++m_script_ptr;
-                do
-                {
-                    ++m_script_ptr;
-                    if (!*m_script_ptr)
-                    {
-                        return false;
-                    }
-                }
-                while (*m_script_ptr != '\n');
-
-                ++m_line_num;
-                ++m_script_ptr;
-
-                if (current_line)
-                {
-                    return true;
-                }
-                if (!*m_script_ptr)
-                {
-                    return false;
-                }
-                continue;
-            }
-            // C-style/multi-line comments:
-            else if (*(m_script_ptr + 1) == '*')
-            {
-                ++m_script_ptr;
-                for (;;)
-                {
-                    ++m_script_ptr;
-                    if (!*m_script_ptr)
-                    {
-                        return false;
-                    }
-                    if (*m_script_ptr == '\n')
-                    {
-                        ++m_line_num;
-                    }
-                    else if (*m_script_ptr == '/')
-                    {
-                        if (*(m_script_ptr - 1) == '*')
-                        {
-                            break;
-                        }
-                        if (*(m_script_ptr + 1) == '*')
-                        {
-                            warning("nested C-style multi-line comment!");
-                        }
-                    }
-                }
-
-                ++m_script_ptr;
-                if (!*m_script_ptr)
-                {
-                    return false;
-                }
-                continue;
-            }
-        }
-        break;
+        case comment_skip::none          : return true;
+        case comment_skip::skipped       : continue;
+        case comment_skip::end_of_script : return false;
+        } // switch (internal_skip_comment())
     }
-    return true;
 }
 
 void lexer::unget_token(const token & in_token)
@@ -2649,12 +2627,63 @@ std::string lexer::get_last_whitespace() const
     return whitespace;
 }
 
+lexer::comment_skip lexer::internal_skip_comment()
+{
+    // C++-style comments, and ';' comments if enabled, run to the end of the line.
+    // The newline is left in place for the caller's whitespace loop to count.
+    const bool line_comment = (m_script_ptr[0] == '/' && m_script_ptr[1] == '/') ||
+                              (m_script_ptr[0] == ';' && (m_flags & flags::semicolon_comments));
+    if (line_comment)
+    {
+        while (*m_script_ptr != '\n')
+        {
+            if (!*m_script_ptr)
+            {
+                return comment_skip::end_of_script;
+            }
+            ++m_script_ptr;
+        }
+        return comment_skip::skipped;
+    }
+
+    // C-style/multi-line comments:
+    if (m_script_ptr[0] == '/' && m_script_ptr[1] == '*')
+    {
+        // Step over the whole "/*" first, so that "/*/" does not close the comment.
+        m_script_ptr += 2;
+        for (;;)
+        {
+            if (!*m_script_ptr)
+            {
+                error("end of script inside a C-style multi-line comment!");
+                return comment_skip::end_of_script;
+            }
+            if (m_script_ptr[0] == '*' && m_script_ptr[1] == '/')
+            {
+                m_script_ptr += 2;
+                return comment_skip::skipped;
+            }
+            if (*m_script_ptr == '\n')
+            {
+                ++m_line_num;
+            }
+            else if (m_script_ptr[0] == '/' && m_script_ptr[1] == '*')
+            {
+                warning("nested C-style multi-line comment!");
+            }
+            ++m_script_ptr;
+        }
+    }
+
+    return comment_skip::none;
+}
+
 bool lexer::internal_read_whitespace()
 {
     for (;;)
     {
-        // Skip whitespace:
-        while (*m_script_ptr <= ' ')
+        // Skip whitespace. Bytes above 0x7F are not whitespace, whatever the signedness of char.
+        while (static_cast<unsigned char>(*m_script_ptr) <= ' ')
         {
             if (!*m_script_ptr)
             {
@@ -2668,83 +2697,20 @@ bool lexer::internal_read_whitespace()
         }
 
         // Skip comments:
-        if (*m_script_ptr == '/')
+        switch (internal_skip_comment())
         {
-            // C++-style comments:
-            if (*(m_script_ptr + 1) == '/')
-            {
-                ++m_script_ptr;
-                do
-                {
-                    ++m_script_ptr;
-                    if (!*m_script_ptr)
-                    {
-                        return false;
-                    }
-                }
-                while (*m_script_ptr != '\n');
-
-                ++m_line_num;
-                ++m_script_ptr;
-
-                if (!*m_script_ptr)
-                {
-                    return false;
-                }
-                continue;
-            }
-            // C-style/multi-line comments:
-            else if (*(m_script_ptr + 1) == '*')
-            {
-                ++m_script_ptr;
-                for (;;)
-                {
-                    ++m_script_ptr;
-                    if (!*m_script_ptr)
-                    {
-                        return false;
-                    }
-                    if (*m_script_ptr == '\n')
-                    {
-                        ++m_line_num;
-                    }
-                    else if (*m_script_ptr == '/')
-                    {
-                        if (*(m_script_ptr - 1) == '*')
-                        {
-                            break;
-                        }
-                        if (*(m_script_ptr + 1) == '*')
-                        {
-                            warning("nested C-style, multi-line comment!");
-                        }
-                    }
-                }
-
-                ++m_script_ptr;
-                if (!*m_script_ptr)
-                {
-                    return false;
-                }
-
-                ++m_script_ptr;
-                if (!*m_script_ptr)
-                {
-                    return false;
-                }
-                continue;
-            }
-        }
-        break;
+        case comment_skip::none          : return true;
+        case comment_skip::skipped       : continue;
+        case comment_skip::end_of_script : return false;
+        } // switch (internal_skip_comment())
     }
-    return true;
 }
 
 bool lexer::internal_read_escape_character(char * out_char)
 {
     LEXER_ASSERT(out_char != nullptr);
 
-    int c, val, i;
+    int c, val;
     ++m_script_ptr; // Step over the leading '\\'
 
     // Determine the escape character:
@@ -2765,18 +2731,18 @@ bool lexer::internal_read_escape_character(char * out_char)
     case 'x'  : // Scan hexadecimal constant:
         {
             ++m_script_ptr;
-            for (i = 0, val = 0; ; ++i, ++m_script_ptr)
+            for (val = 0; ; ++m_script_ptr)
             {
                 c = *m_script_ptr;
                 if (c >= '0' && c <= '9')
                 {
                     c = c - '0';
                 }
-                else if (c >= 'A' && c <= 'Z')
+                else if (c >= 'A' && c <= 'F')
                 {
                     c = c - 'A' + 10;
                 }
-                else if (c >= 'a' && c <= 'z')
+                else if (c >= 'a' && c <= 'f')
                 {
                     c = c - 'a' + 10;
                 }
@@ -2804,7 +2770,7 @@ bool lexer::internal_read_escape_character(char * out_char)
                 return error("unknown/invalid escape char!");
             }
 
-            for (i = 0, val = 0; ; ++i, ++m_script_ptr)
+            for (val = 0; ; ++m_script_ptr)
             {
                 c = *m_script_ptr;
                 if (c >= '0' && c <= '9')
@@ -3258,7 +3224,7 @@ bool lexer::internal_read_punctuation(token * out_token)
     LEXER_ASSERT(m_punctuations != nullptr);
 
     int l, n, i;
-    for (n = m_punctuations_table[static_cast<unsigned>(*m_script_ptr)]; n >= 0; n = m_punctuations_next[n])
+    for (n = m_punctuations_table[static_cast<unsigned char>(*m_script_ptr)]; n >= 0; n = m_punctuations_next[n])
     {
         const punctuation_def punct = m_punctuations[n];
         const char * const chars    = punct.str;
@@ -3334,6 +3300,32 @@ std::string & lexer::trim_string(std::string * s)
 // ========================================================
 
 lexer::error_callbacks * lexer::m_error_callbacks = nullptr;
+
+void lexer::error_callbacks::error_at(const std::string & filename, const std::uint32_t line_num,
+                                      const std::string & message, const bool fatal)
+{
+    // When using the ANSI color codes the "error" tag prints in red.
+#ifdef LEXER_ERROR_WARN_USE_ANSI_COLOR_CODES
+    const std::string err_tag = "\033[31;1m error: \033[0;1m";
+#else // !LEXER_ERROR_WARN_USE_ANSI_COLOR_CODES
+    const std::string err_tag = " error: ";
+#endif // LEXER_ERROR_WARN_USE_ANSI_COLOR_CODES
+
+    error(filename + "(" + std::to_string(line_num) + "):" + err_tag + message, fatal);
+}
+
+void lexer::error_callbacks::warning_at(const std::string & filename, const std::uint32_t line_num,
+                                        const std::string & message)
+{
+    // When using the ANSI color codes the "warning" tag prints in magenta.
+#ifdef LEXER_ERROR_WARN_USE_ANSI_COLOR_CODES
+    const std::string warn_tag = "\033[35;1m warning: \033[0;1m";
+#else // !LEXER_ERROR_WARN_USE_ANSI_COLOR_CODES
+    const std::string warn_tag = " warning: ";
+#endif // LEXER_ERROR_WARN_USE_ANSI_COLOR_CODES
+
+    warning(filename + "(" + std::to_string(line_num) + "):" + warn_tag + message);
+}
 
 void lexer::set_error_callbacks(error_callbacks * err_callbacks) noexcept
 {
@@ -3412,7 +3404,7 @@ void lexer::set_punctuation_tables(const punctuation_def * const punctuations,
         int last_punct_id = -1;
 
         // Sort the punctuations in this table entry on length (longer punctuations first):
-        for (n = punctuations_table[static_cast<unsigned>(new_punct.str[0])]; n >= 0; n = punctuations_next[n])
+        for (n = punctuations_table[static_cast<unsigned char>(new_punct.str[0])]; n >= 0; n = punctuations_next[n])
         {
             const punctuation_def punct = punctuations[n];
             if (std::strlen(punct.str) < std::strlen(new_punct.str))
@@ -3424,7 +3416,7 @@ void lexer::set_punctuation_tables(const punctuation_def * const punctuations,
                 }
                 else
                 {
-                    punctuations_table[static_cast<unsigned>(new_punct.str[0])] = static_cast<punct_table_index_type>(i);
+                    punctuations_table[static_cast<unsigned char>(new_punct.str[0])] = static_cast<punct_table_index_type>(i);
                 }
                 break;
             }
@@ -3440,7 +3432,7 @@ void lexer::set_punctuation_tables(const punctuation_def * const punctuations,
             }
             else
             {
-                punctuations_table[static_cast<unsigned>(new_punct.str[0])] = static_cast<punct_table_index_type>(i);
+                punctuations_table[static_cast<unsigned char>(new_punct.str[0])] = static_cast<punct_table_index_type>(i);
             }
         }
     }

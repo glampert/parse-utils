@@ -9,7 +9,7 @@
 // ================================================================================================
 
 // Compiles with:
-//  c++ -std=c++11 -Wall -Wextra -Weffc++ -pedantic -I../../ -o misc_lex_tests misc_lex_tests.cpp
+//  c++ -std=c++20 -Wall -Wextra -Weffc++ -pedantic -I../../ -o misc_lex_tests misc_lex_tests.cpp
 
 #define LEXER_ERROR_WARN_USE_ANSI_COLOR_CODES
 #define LEXER_IMPLEMENTATION
@@ -17,7 +17,9 @@
 
 #include <iostream>
 #include <string>
+#include <vector>
 #include <cmath>
+#include <cstring>
 
 // Verbose unless specified otherwise.
 #ifndef LEX_TESTS_VERBOSE
@@ -325,6 +327,187 @@ static void lex_test_word_count()
     assert(word_count == 527);
 }
 
+// Lexes the whole text, returning each token as "text@line".
+static std::vector<std::string> lex_string(const char * text, const std::uint32_t flags)
+{
+    lexer lex{ text, static_cast<std::uint32_t>(std::strlen(text)), "(test)", flags };
+    std::vector<std::string> tokens;
+    lexer::token tok;
+
+    while (lex.next_token(&tok))
+    {
+        tokens.push_back(tok.as_string() + "@" + std::to_string(tok.get_line_number()));
+    }
+    return tokens;
+}
+
+using string_list = std::vector<std::string>;
+
+static void lex_test_semicolon_comments()
+{
+    #if LEX_TESTS_VERBOSE
+    std::cout << "\nSemicolon comments...\n";
+    #endif // LEX_TESTS_VERBOSE
+
+    const char * const text = "a ; comment\nb;c ; d\n\"x;y\" ; e\n;last";
+
+    // Without the flag, ';' is punctuation:
+    assert((lex_string(text, lexer::flags::no_string_concat) == string_list{
+        "a@1", ";@1", "comment@1", "b@2", ";@2", "c@2", ";@2", "d@2", "x;y@3", ";@3", "e@3", ";@4", "last@4" }));
+
+    // With it, ';' starts a comment that runs to the end of the line,
+    // except inside a string:
+    assert((lex_string(text, lexer::flags::no_string_concat | lexer::flags::semicolon_comments) == string_list{
+        "a@1", "b@2", "x;y@3" }));
+
+    // C and C++ comments still work alongside:
+    assert((lex_string("a // b ; c\nd /* e ; f */ g ; h\ni", lexer::flags::semicolon_comments) == string_list{
+        "a@1", "d@2", "g@2", "i@3" }));
+
+    // skip_whitespace() stops at the end of the current line after a ';' comment:
+    {
+        const char script[] = "  ; note\nnext";
+        lexer lex{ script, sizeof(script) - 1, "(test)", lexer::flags::semicolon_comments };
+        lexer::token tok;
+        assert(lex.skip_whitespace(/* current_line = */ true));
+        assert(lex.next_token(&tok) && tok == "next" && tok.get_line_number() == 2);
+    }
+}
+
+static void lex_test_block_comments()
+{
+    #if LEX_TESTS_VERBOSE
+    std::cout << "\nBlock comments...\n";
+    #endif // LEX_TESTS_VERBOSE
+
+    // The character right after "*/" belongs to the next token:
+    assert((lex_string("/*c*/xy z", 0) == string_list{ "xy@1", "z@1" }));
+
+    // A newline right after "*/" is still counted:
+    assert((lex_string("a /* c */\nfoo\nbar", 0) == string_list{ "a@1", "foo@2", "bar@3" }));
+    assert((lex_string("a /* 1\n2\n3 */ b\nc", 0) == string_list{ "a@1", "b@3", "c@4" }));
+
+    // "/*/" opens a comment without closing it:
+    assert((lex_string("/*/ w */ v", 0) == string_list{ "v@1" }));
+
+    // An unterminated comment is an error (not fatal here, so lexing just ends):
+    {
+        const char script[] = "a /* never closed";
+        lexer lex{ script, sizeof(script) - 1, "(test)", lexer::flags::no_errors | lexer::flags::no_fatal_errors };
+        lexer::token tok;
+        assert(lex.next_token(&tok) && tok == "a");
+        assert(!lex.next_token(&tok));
+        assert(lex.get_error_count() == 1);
+    }
+}
+
+static void lex_test_high_bytes()
+{
+    #if LEX_TESTS_VERBOSE
+    std::cout << "\nBytes above 0x7F...\n";
+    #endif // LEX_TESTS_VERBOSE
+
+    // A UTF-8 byte order mark is skipped:
+    assert((lex_string("\xEF\xBB\xBF" "foo bar", 0) == string_list{ "foo@1", "bar@1" }));
+
+    // UTF-8 text is fine in comments and strings:
+    assert((lex_string("a // \xC3\xA9\nb /* \xC3\xA9 */ \"\xC3\xA9\"", 0) == string_list{ "a@1", "b@2", "\xC3\xA9@2" }));
+
+    // Anywhere else it is an error, where it used to be skipped as whitespace:
+    {
+        const char script[] = "k \xC3\xA9 m";
+        lexer lex{ script, sizeof(script) - 1, "(test)", lexer::flags::no_errors | lexer::flags::no_fatal_errors };
+        lexer::token tok;
+        assert(lex.next_token(&tok) && tok == "k");
+        assert(!lex.next_token(&tok));
+        assert(lex.get_error_count() == 1);
+    }
+}
+
+static void lex_test_hex_escapes()
+{
+    #if LEX_TESTS_VERBOSE
+    std::cout << "\nHexadecimal escapes...\n";
+    #endif // LEX_TESTS_VERBOSE
+
+    // \x takes hexadecimal digits only, so the 'G' is a character of its own:
+    const char script[] = "\"\\x41G\\x4a\"";
+    lexer lex{ script, sizeof(script) - 1, "(test)" };
+    lexer::token tok;
+    assert(lex.next_token(&tok) && tok.is_string() && tok == "AGJ");
+}
+
+static void lex_test_error_callbacks()
+{
+    #if LEX_TESTS_VERBOSE
+    std::cout << "\nError callbacks...\n";
+    #endif // LEX_TESTS_VERBOSE
+
+    // The bad character is first on line 2, so that is the line reported.
+    const char script[] = "a\n\xC3\xA9";
+
+    // Overriding just error()/warning() still gets the formatted messages:
+    struct formatted_callbacks final : public lexer::error_callbacks
+    {
+        std::string last_message;
+        void error(const std::string & message, bool) override { last_message = message; }
+        void warning(const std::string & message) override { last_message = message; }
+    } formatted;
+
+    lexer::set_error_callbacks(&formatted);
+    {
+        lexer lex{ script, sizeof(script) - 1, "(test)", lexer::flags::no_fatal_errors };
+        lexer::token tok;
+        while (lex.next_token(&tok)) { }
+        assert(formatted.last_message.find("(test)(2):") == 0);
+        assert(formatted.last_message.find("unknown punctuation character") != std::string::npos);
+    }
+
+    // Overriding error_at()/warning_at() gets the parts:
+    struct parts_callbacks final : public lexer::error_callbacks
+    {
+        std::string   filename;
+        std::string   message;
+        std::uint32_t line_num = 0;
+        bool          fatal    = false;
+        int           warnings = 0;
+
+        void error(const std::string &, bool) override { assert(false); }
+        void warning(const std::string &) override { assert(false); }
+
+        void error_at(const std::string & file, const std::uint32_t line, const std::string & msg, const bool is_fatal) override
+        {
+            filename = file;
+            line_num = line;
+            message  = msg;
+            fatal    = is_fatal;
+        }
+        void warning_at(const std::string &, std::uint32_t, const std::string &) override
+        {
+            ++warnings;
+        }
+    } parts;
+
+    lexer::set_error_callbacks(&parts);
+    {
+        lexer lex{ script, sizeof(script) - 1, "(test)", lexer::flags::no_fatal_errors };
+        lexer::token tok;
+        while (lex.next_token(&tok)) { }
+        assert(parts.filename == "(test)" && parts.line_num == 2 && !parts.fatal);
+        assert(parts.message.find("unknown punctuation character") == 0);
+    }
+    {
+        const char nested[] = "/* a /* b */ c";
+        lexer lex{ nested, sizeof(nested) - 1, "(test)" };
+        lexer::token tok;
+        assert(lex.next_token(&tok) && tok == "c");
+        assert(parts.warnings == 1);
+    }
+
+    // Back to the defaults for the other tests.
+    lexer::set_error_callbacks(nullptr);
+}
+
 // ========================================================
 // main():
 // ========================================================
@@ -339,6 +522,11 @@ int main()
     lex_test_custom_punct_table();
     lex_test_line_count();
     lex_test_word_count();
+    lex_test_semicolon_comments();
+    lex_test_block_comments();
+    lex_test_high_bytes();
+    lex_test_hex_escapes();
+    lex_test_error_callbacks();
 
     std::cout << "\nAll tests passed!\n";
 }

@@ -1,0 +1,5 @@
+__FILE__: "test_script.txt"
+__LINE__: 5
+__DATE__: "<__DATE__>"
+__TIME__: "<__TIME__>"
+__VA_ARGS__: 

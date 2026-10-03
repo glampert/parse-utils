@@ -1,0 +1,5 @@
+test_files/evals_and_macros.h(117): warning: 
+test_files/evals_and_macros.h(119): warning: Single line warning message.
+test_files/evals_and_macros.h(123): warning: A long, multi-line warning message with several words.
+test_files/evals_and_macros.h(131): warning: This warning will print.
+test_files/evals_and_macros.h(142): warning: macro 'WORLD' is already defined and will be overwritten.

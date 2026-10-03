@@ -1,0 +1,5 @@
+
+<uno>const int date=2016-5-23;const char*s="These are the contents of \'inc_test_1.h\'";</uno><dos>const int date=2016-5-23;const char*s="These are the contents of \'inc_test_2.h\'";
+const int date=2016-5-23;const char*s="These are the contents of \'inc_test_3.h\'";printf("%s", "Hello from include file #3\n" );"\tSome more stuff from inc_test_2...\n";
+</dos><tres></tres><quatro>"The end";</quatro>
+

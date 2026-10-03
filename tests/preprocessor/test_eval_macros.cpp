@@ -9,7 +9,7 @@
 // ================================================================================================
 
 // Compiles with:
-//  c++ -std=c++11 -Wall -Wextra -Weffc++ -Wshadow -pedantic -I../../ test_eval_macros.cpp -o pp_test_eval_macros
+//  c++ -std=c++20 -Wall -Wextra -Weffc++ -Wshadow -pedantic -I../../ test_eval_macros.cpp -o pp_test_eval_macros
 
 #define LEXER_IMPLEMENTATION
 #include "lexer.hpp"

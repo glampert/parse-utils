@@ -9,7 +9,7 @@
 // ================================================================================================
 
 // Compiles with:
-//  c++ -std=c++11 -Wall -Wextra -Weffc++ -Wshadow -pedantic -I../../ test_includes.cpp -o pp_test_inc
+//  c++ -std=c++20 -Wall -Wextra -Weffc++ -Wshadow -pedantic -I../../ test_includes.cpp -o pp_test_inc
 
 #define LEXER_IMPLEMENTATION
 #include "lexer.hpp"

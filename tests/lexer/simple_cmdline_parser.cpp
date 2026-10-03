@@ -9,7 +9,7 @@
 // ================================================================================================
 
 // Compiles with:
-//  c++ -std=c++11 -Wall -Wextra -Weffc++ -pedantic -I../../ -o simple_cmdline_parser simple_cmdline_parser.cpp
+//  c++ -std=c++20 -Wall -Wextra -Weffc++ -pedantic -I../../ -o simple_cmdline_parser simple_cmdline_parser.cpp
 
 #define LEXER_ERROR_WARN_USE_ANSI_COLOR_CODES
 #define LEXER_IMPLEMENTATION
