@@ -364,6 +364,7 @@ private:
 
 #ifndef PREPROCESSOR_NO_STD_INCLUDES
     #include <algorithm>
+    #include <cinttypes>
     #include <cmath>
     #include <ctime>
     #include <cstdio>
@@ -371,8 +372,9 @@ private:
     #include <utility>
 #endif // PREPROCESSOR_NO_STD_INCLUDES
 
+// std::int64_t is long on some platforms and long long on others, so its format comes from <cinttypes>.
 #define PREPROC_FLOAT_FMT   "%.20lf"
-#define PREPROC_INT64_FMT   "%lli"
+#define PREPROC_INT64_FMT   "%" PRId64
 #define PREPROC_NUMBUF_SIZE 128
 
 // ========================================================
