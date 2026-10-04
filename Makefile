@@ -3,7 +3,7 @@
 # 'make test' builds every test program and runs it (see tests/run_tests.sh);
 # 'make update-test-output' rewrites the expected output the tests compare against.
 
-CXXFLAGS ?= -std=c++20 -O0 -g -Wall -Wextra -pedantic -Werror
+CXXFLAGS ?= -std=c++17 -O0 -g -Wall -Wextra -pedantic -Werror
 
 test:
 	@CXX="$(CXX)" CXXFLAGS="$(CXXFLAGS)" sh tests/run_tests.sh

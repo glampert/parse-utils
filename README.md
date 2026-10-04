@@ -1,6 +1,6 @@
 ## Parse Utils
 
-C++20 utilities for lexing and parsing of script languages, configuration files and command-lines.
+C++17 utilities for lexing and parsing of script languages, configuration files and command-lines.
 
 `lexer.hpp` contains a lightweight lexicographical scanner capable of scanning C-like languages.
 Code was adapted from the lexer used by the id Tech 4 engine and the DOOM 3 game [(available here)](https://github.com/id-Software/DOOM-3-BFG/blob/master/neo/idlib/Lexer.h).

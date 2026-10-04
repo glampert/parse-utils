@@ -18,7 +18,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 
 CXX=${CXX:-c++}
-CXXFLAGS=${CXXFLAGS:--std=c++20 -O0 -g -Wall -Wextra -pedantic -Werror}
+CXXFLAGS=${CXXFLAGS:--std=c++17 -O0 -g -Wall -Wextra -pedantic -Werror}
 BUILD_DIR=${BUILD_DIR:-build/tests}
 
 update=0

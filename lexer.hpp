@@ -1267,7 +1267,6 @@ inline bool lexer::is_punctuation_token(const token & tok, const punctuation_id 
 #ifdef LEXER_IMPLEMENTATION
 
 #ifndef LEXER_NO_STD_INCLUDES
-    #include <bit>
     #include <cstdio>
     #include <cstring>
     #include <iostream>
@@ -1277,6 +1276,20 @@ inline bool lexer::is_punctuation_token(const token & tok, const punctuation_id 
 // ========================================================
 // token class:
 // ========================================================
+
+namespace lexer_detail
+{
+
+// The float whose IEEE 754 bit pattern is 'bits'.
+static float float_from_bits(const std::uint32_t bits) noexcept
+{
+    static_assert(sizeof(float) == sizeof(std::uint32_t), "float must be 32 bits");
+    float value;
+    std::memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
+} // namespace lexer_detail {}
 
 void lexer::token::update_cached_values() const noexcept
 {
@@ -1292,17 +1305,17 @@ void lexer::token::update_cached_values() const noexcept
             if (m_flags & flags::infinite) // 1.#INF
             {
                 const std::uint32_t inf = 0x7F800000;
-                new_double_val = static_cast<double>(std::bit_cast<float>(inf));
+                new_double_val = static_cast<double>(lexer_detail::float_from_bits(inf));
             }
             else if (m_flags & flags::indefinite) // 1.#IND
             {
                 const std::uint32_t ind = 0xFFC00000;
-                new_double_val = static_cast<double>(std::bit_cast<float>(ind));
+                new_double_val = static_cast<double>(lexer_detail::float_from_bits(ind));
             }
             else if (m_flags & flags::nan) // 1.#NAN
             {
                 const std::uint32_t nan = 0x7FC00000;
-                new_double_val = static_cast<double>(std::bit_cast<float>(nan));
+                new_double_val = static_cast<double>(lexer_detail::float_from_bits(nan));
             }
         }
         else

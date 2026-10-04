@@ -9,7 +9,7 @@
 // ================================================================================================
 
 // Compiles with:
-//  c++ -std=c++20 -Wall -Wextra -Weffc++ -pedantic -I../../ -o misc_lex_tests misc_lex_tests.cpp
+//  c++ -std=c++17 -Wall -Wextra -Weffc++ -pedantic -I../../ -o misc_lex_tests misc_lex_tests.cpp
 
 #define LEXER_ERROR_WARN_USE_ANSI_COLOR_CODES
 #define LEXER_IMPLEMENTATION
