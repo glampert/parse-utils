@@ -462,6 +462,59 @@ static void lex_test_unknown_punctuation()
     }
 }
 
+static void lex_test_float_exceptions()
+{
+    #if LEX_TESTS_VERBOSE
+    std::cout << "\nFloating-point exceptions...\n";
+    #endif // LEX_TESTS_VERBOSE
+
+    const char script[] = "1.#INF 1.#IND 1.#NAN 1.#QNAN 1.#SNAN 1.#INF00 2.5";
+    lexer lex{ script, sizeof(script) - 1, "(test)", lexer::flags::allow_float_exceptions };
+    lexer::token tok;
+
+    // 1.#INF is positive infinity. Integers have no infinity, so it reads as 0 there:
+    assert(lex.next_token(&tok) && tok == "1.#INF");
+    assert(tok.get_flags() & lexer::token::flags::infinite);
+    assert(std::isinf(tok.as_double()) && !std::signbit(tok.as_double()));
+    assert(tok.as_uint64() == 0);
+
+    // 1.#IND is the "indefinite" NaN of x86, which has its sign bit set:
+    assert(lex.next_token(&tok) && tok == "1.#IND");
+    assert(tok.get_flags() & lexer::token::flags::indefinite);
+    assert(std::isnan(tok.as_double()) && std::signbit(tok.as_double()));
+    assert(tok.as_uint64() == 0);
+
+    // The other names are all NaN:
+    for (const char * const name : { "1.#NAN", "1.#QNAN", "1.#SNAN" })
+    {
+        assert(lex.next_token(&tok) && tok == name);
+        assert(tok.get_flags() & lexer::token::flags::nan);
+        assert(std::isnan(tok.as_double()) && !std::signbit(tok.as_double()));
+    }
+
+    // Digits after the name belong to the number, as in MSVC's "1.#INF00":
+    assert(lex.next_token(&tok) && tok == "1.#INF00" && std::isinf(tok.as_double()));
+
+    // The number after them reads as usual:
+    assert(lex.next_token(&tok) && tok == "2.5" && tok.as_double() == 2.5);
+    assert(!lex.next_token(&tok) && lex.get_error_count() == 0);
+
+    // An unknown name is an error, as is one the script ends in the middle of:
+    for (const char * const text : { "1.#ABC", "1.#IN" })
+    {
+        lexer bad{ text, static_cast<std::uint32_t>(std::strlen(text)), "(test)",
+                   lexer::flags::allow_float_exceptions | lexer::flags::no_errors | lexer::flags::no_fatal_errors };
+        assert(!bad.next_token(&tok) && bad.get_error_count() == 1);
+    }
+
+    // Without allow_float_exceptions, even the known names are errors:
+    {
+        const char text[] = "1.#INF";
+        lexer strict{ text, sizeof(text) - 1, "(test)", lexer::flags::no_errors | lexer::flags::no_fatal_errors };
+        assert(!strict.next_token(&tok) && strict.get_error_count() == 1);
+    }
+}
+
 static void lex_test_hex_escapes()
 {
     #if LEX_TESTS_VERBOSE
@@ -564,6 +617,7 @@ int main()
     lex_test_block_comments();
     lex_test_high_bytes();
     lex_test_unknown_punctuation();
+    lex_test_float_exceptions();
     lex_test_hex_escapes();
     lex_test_error_callbacks();
 

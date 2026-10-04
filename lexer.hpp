@@ -1378,7 +1378,13 @@ void lexer::token::update_cached_values() const noexcept
                 }
             }
         }
-        new_u64_val = static_cast<std::uint64_t>(new_double_val);
+
+        // Converting a value std::uint64_t cannot hold is undefined behavior, so NaN,
+        // infinity and values of 2^64 or more read as 0.
+        if (new_double_val >= 0.0 && new_double_val < 18446744073709551616.0)
+        {
+            new_u64_val = static_cast<std::uint64_t>(new_double_val);
+        }
     }
     else if (m_flags & flags::decimal) // Decimal integer number
     {
@@ -3104,31 +3110,37 @@ bool lexer::internal_read_number(token * out_token)
                     c1 = *(++m_script_ptr);
                 }
             }
-            // Check for floating point exceptions -> infinite 1.#INF or indefinite 1.#IND or NaN:
+            // Check for floating point exceptions -> infinite 1.#INF or indefinite 1.#IND or NaN.
+            // The script pointer is still on the '#', so the names are matched with it.
             else if (c1 == '#')
             {
                 c2 = 4;
-                if (internal_check_string("INF"))
+                if (internal_check_string("#INF"))
                 {
                     token_flags |= token::flags::infinite;
                 }
-                else if (internal_check_string("IND"))
+                else if (internal_check_string("#IND"))
                 {
                     token_flags |= token::flags::indefinite;
                 }
-                else if (internal_check_string("NAN"))
+                else if (internal_check_string("#NAN"))
                 {
                     token_flags |= token::flags::nan;
                 }
-                else if (internal_check_string("QNAN"))
+                else if (internal_check_string("#QNAN"))
                 {
                     token_flags |= token::flags::nan;
                     c2++;
                 }
-                else if (internal_check_string("SNAN"))
+                else if (internal_check_string("#SNAN"))
                 {
                     token_flags |= token::flags::nan;
                     c2++;
+                }
+                else // Also stops the loop below from running past the end of the script.
+                {
+                    return error("unknown floating-point exception after \'" + out_token->as_string() +
+                                 "\'; expected #INF, #IND, #NAN, #QNAN or #SNAN");
                 }
 
                 for (int i = 0; i < c2; ++i)
